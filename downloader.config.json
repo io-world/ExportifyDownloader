@@ -4,8 +4,8 @@
   "DurationTolerance": 10,
   "SearchResults": 6,
   "ForceRedownload": false,
-  "Limit": 0,
-  "SleepRequests": 1.5,
+  "Limit": 10,
+  "SleepRequests": 0,
   "CookiesFromBrowser": "",
   "CookiesFile": ".\\music youtube cookies.txt"
 }

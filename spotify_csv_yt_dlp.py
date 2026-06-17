@@ -34,6 +34,15 @@ STATUS_UNRESOLVED = "unresolved"
 STATUS_ERROR = "error"
 
 
+def log(message: str) -> None:
+    print(message, flush=True)
+
+
+def shorten_error_message(value: str, limit: int = 180) -> str:
+    compact = re.sub(r"\s+", " ", value).strip()
+    return compact if len(compact) <= limit else compact[: limit - 3].rstrip() + "..."
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Download tracks from Exportify CSV and update the same CSV with progress."
@@ -548,9 +557,10 @@ def main() -> int:
                     write_csv(csv_path, rows, fieldnames)
                     failed += 1
                     processed += 1
-                    print(f"[{idx}] error: metadata update failed :: {exc}")
+                    log(f"[{idx}] error: metadata update failed :: {shorten_error_message(str(exc))}")
                     continue
             skipped += 1
+            log(f"[{idx}] skip: already downloaded")
             continue
 
         track = (row.get("Track Name") or "").strip()
@@ -565,11 +575,12 @@ def main() -> int:
             write_csv(csv_path, rows, fieldnames)
             failed += 1
             processed += 1
-            print(f"[{idx}] error: invalid row metadata")
+            log(f"[{idx}] error: invalid row metadata")
             continue
 
         expected_duration_s = round(int(duration_ms_raw) / 1000)
         query = f"{artist} {track}"
+        log(f"[{idx}] checking: {artist} - {track}")
 
         try:
             candidates = run_yt_dlp_json(
@@ -597,7 +608,7 @@ def main() -> int:
                 write_csv(csv_path, rows, fieldnames)
                 unresolved += 1
                 processed += 1
-                print(f"[{idx}] unresolved: {artist} - {track}")
+                log(f"[{idx}] unresolved: {artist} - {track}")
                 continue
 
             candidate, delta = picked
@@ -612,11 +623,12 @@ def main() -> int:
                 write_csv(csv_path, rows, fieldnames)
                 failed += 1
                 processed += 1
-                print(f"[{idx}] error: match missing URL")
+                log(f"[{idx}] error: match missing URL")
                 continue
 
             base_name = stable_base_name(artist, track)
             output_template = str(output_dir / f"{base_name}.%(ext)s")
+            log(f"[{idx}] downloading: {artist} - {track} <- {title}")
 
             download_audio(
                 url,
@@ -641,7 +653,7 @@ def main() -> int:
             write_csv(csv_path, rows, fieldnames)
             downloaded += 1
             processed += 1
-            print(f"[{idx}] downloaded: {artist} - {track}")
+            log(f"[{idx}] downloaded: {artist} - {track}")
 
         except Exception as exc:  # noqa: BLE001
             row["download_status"] = STATUS_ERROR
@@ -650,15 +662,15 @@ def main() -> int:
             write_csv(csv_path, rows, fieldnames)
             failed += 1
             processed += 1
-            print(f"[{idx}] error: {artist} - {track} :: {exc}")
+            log(f"[{idx}] error: {artist} - {track} :: {shorten_error_message(str(exc))}")
 
-    print("\nRun complete")
-    print(f"  downloaded: {downloaded}")
-    print(f"  skipped:    {skipped}")
-    print(f"  unresolved: {unresolved}")
-    print(f"  errors:     {failed}")
-    print(f"  csv:        {csv_path}")
-    print(f"  out dir:    {output_dir}")
+    log("\nRun complete")
+    log(f"  downloaded: {downloaded}")
+    log(f"  skipped:    {skipped}")
+    log(f"  unresolved: {unresolved}")
+    log(f"  errors:     {failed}")
+    log(f"  csv:        {csv_path}")
+    log(f"  out dir:    {output_dir}")
     return 0
 
 

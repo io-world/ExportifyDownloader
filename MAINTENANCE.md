@@ -2,12 +2,16 @@
 
 Operational commands and recovery steps for this downloader project.
 
+Playlist CSV files are expected to be exported from https://exportify.app/ and placed in the local `exportify.app` folder.
+
 ## 0) Config Defaults
 
 Use `downloader.config.json` for default values (tolerance, search results, sleep delay, cookies, etc.).
 
 - CLI arguments override config values.
 - Use `-ConfigPath` to load a different config file.
+- `Limit` controls how many rows are processed in one run. `0` means all rows.
+- Current default values are `Limit: 10` and `SleepRequests: 0`.
 
 Example:
 
@@ -20,6 +24,8 @@ Example:
 ```powershell
 .\run_playlist_downloader.ps1 -CsvPath .\exportify.app\3_dnb_dance_floor.csv
 ```
+
+Live console feedback now shows each row as it moves through `checking`, `downloading`, `downloaded`, `skip`, `unresolved`, or `error`.
 
 ## 2) Retry Problem Rows
 
@@ -67,6 +73,20 @@ $code | .\.venv\Scripts\python.exe -
 
 If a row is `downloaded` but `output_file` is empty, rebuild path references by matching file stems, then retag.
 
+Run the reconcile utility directly:
+
+```powershell
+.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv
+.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --files-dir .\3_dnb_dance_floor
+.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --clear-missing
+```
+
+If there is only one CSV in `exportify.app`, the script can also be run without arguments:
+
+```powershell
+.\.venv\Scripts\python.exe .\reconcile_csv_files.py
+```
+
 Practical rule:
 
 - Use exact stem matching, not glob wildcards, for names containing square brackets (`[` and `]`).
@@ -76,7 +96,7 @@ Practical rule:
 Python syntax check:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile .\spotify_csv_yt_dlp.py
+.\.venv\Scripts\python.exe -m py_compile .\spotify_csv_yt_dlp.py .\reconcile_csv_files.py
 ```
 
 Inspect tag values:
@@ -88,5 +108,6 @@ ffprobe -v error -show_entries format_tags=title,artist,album,track,row_id,spoti
 ## 6) Common Issues
 
 - HTTP 403 on YouTube: pass `-CookiesFromBrowser`.
+- Repeated `This content isn't available, try again later` errors: stop the run and retry later or increase `-SleepRequests`.
 - Blank title in Windows: ensure file was retagged and refresh Explorer cache.
 - Missing output file path in CSV: reconcile output path and rerun retag.

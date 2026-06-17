@@ -137,25 +137,16 @@ function Invoke-CsvDownload {
     Write-Host "  CSV path: $TargetCsvPath"
     Write-Host "  Settings: tolerance=$DurationTolerance searchResults=$SearchResults limit=$Limit sleepRequests=$SleepRequests forceRedownload=$ForceRedownload"
 
-    $outputLines = @(& $pythonPath @arguments 2>&1 | ForEach-Object { $_.ToString() })
+    & $pythonPath -u @arguments | Out-Host
     $exitCode = $LASTEXITCODE
-
-    if ($outputLines.Count -gt 0) {
-        $outputLines | Out-Host
-    }
 
     if ($exitCode -eq 0) {
         Write-Host "Completed: $csvName"
         return $exitCode
     }
 
-    $tailCount = [Math]::Min(8, $outputLines.Count)
     Write-Host "Failed: $csvName (exit code $exitCode)"
-    if ($tailCount -gt 0) {
-        Write-Host "Last $tailCount log line(s):"
-        $outputLines | Select-Object -Last $tailCount | Out-Host
-    }
-    return $LASTEXITCODE
+    return $exitCode
 }
 
 if ($CsvPath -ne "") {

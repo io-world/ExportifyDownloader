@@ -54,6 +54,8 @@ Common reasons:
 - File name contains special characters and lookup logic misses it.
 - Explorer metadata cache has stale values.
 
+If `output_file` is blank but the audio file already exists on disk, first run `reconcile_csv_files.py` to restore the CSV path reference, then run the retag flow.
+
 ## Validation Command
 
 Use ffprobe to confirm written tags:
