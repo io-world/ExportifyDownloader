@@ -97,11 +97,11 @@ For each CSV row, the downloader roughly does this:
 
 1. Check whether the row should be skipped.
 2. Validate that track, primary artist, and duration are present.
-3. Build a YouTube search query from first artist + track name.
-4. Call `yt-dlp --dump-single-json ytsearchN:...` to get candidates.
-5. Score candidates using duration tolerance and token overlap rules.
-6. Reject candidates that fail version-keyword expectations.
-7. Download the chosen candidate as audio.
+3. Build a YouTube Music search URL: `https://music.youtube.com/search?q=<artist+track>`.
+4. Call `yt-dlp --dump-single-json <url>` to extract candidates from YouTube Music results.
+5. Score candidates using weighted overlap: duration penalty + title/artist token overlap + version/noise keyword penalties.
+6. Select the lowest-scored candidate (best match).
+7. Download the chosen candidate as audio with yt-dlp rate limiting applied.
 8. Resolve the actual saved output file from the target folder.
 9. Write metadata tags with `ffmpeg`.
 10. Write the result back into the CSV.
@@ -110,18 +110,19 @@ If any step fails, the row is marked `error` with a shortened `error_message`.
 
 ## Matching Heuristics
 
-The matcher is intentionally stricter than a plain YouTube search.
+The matcher balances **weighted overlap** over hard rejects, inspired by spotDL.
 
-It uses:
+It factors in:
 
-- expected duration in seconds
+- expected duration in seconds (duration mismatch penalty: 35x weight)
 - a configurable duration tolerance
-- normalized token overlap between track title and candidate title
-- normalized token overlap between artist name and candidate title/uploader
-- required version keywords from the Spotify title, such as `remix`, `vip`, `live`, `edit`
-- penalties for noisy keywords such as `lyrics`, `nightcore`, `bass boosted`, `sped up`
+- normalized token overlap between track title and candidate title (title weight: 280x)
+- normalized token overlap between artist name and candidate title/uploader (artist weight: 180x)
+- soft penalties for noisy keywords such as `lyrics`, `nightcore`, `bass boosted`, `sped up` (penalty: 90 per keyword)
+- soft penalties for version mismatches (penalty: 45 per mismatch)
+- minimum thresholds to prevent absurd matches (title overlap >= 30%, artist overlap >= 20%)
 
-The current direction is: avoid false positives even if that means some rows become `unresolved`.
+The current direction is: use weighted scoring to reduce false positives while still resolving more tracks than a purely strict approach.
 
 If you change scoring, preserve that bias unless the project goal changes.
 
@@ -233,23 +234,26 @@ This live feedback is important operationally. If you refactor logging, keep it 
 
 These are not theoretical edge cases. They happen in normal use.
 
-- YouTube rate limiting is common.
+- YouTube rate limiting is common; the config includes a tuned throttling profile (`--limit-rate 4M --throttled-rate 50K --sleep-interval 10 --max-sleep-interval 35`) designed for YouTube Music compliance.
 - `This content isn't available, try again later` can repeat across many rows during a bad session.
 - cookies materially improve success rates for age-restricted or protected videos.
 - metadata may appear missing in Windows Explorer until tags are rewritten and the cache refreshes.
 - path mismatches can happen between similar output folders and are recoverable with `reconcile_csv_files.py`.
+- track ordering can help you process rows in playlist order (via `--track-order ascending/descending`) for better manual monitoring and checkpoint context.
 
-Practical operator rule:
+Practical operator rules:
 
-- if repeated rate-limit errors appear across multiple rows, stop the run and retry later or increase `SleepRequests`
+- if repeated rate-limit errors appear across multiple rows, stop the run and retry later or use `--track-order ascending` to resume where you left off.
+- the YouTube Music-only search strategy means your candidate pool is narrower but higher quality than generic YouTube.
 
 ## Safe Change Areas
 
-These are usually safe to change with low architectural risk:
-
-- config defaults in `downloader.config.json`
+These are usually safe to change with low arc (tuning profile, track order, limits)
 - PowerShell log formatting in `run_playlist_downloader.ps1`
 - Python log wording in `spotify_csv_yt_dlp.py`
+- scoring weights and token overlap thresholds in the matcher
+- reconcile filename matching rules in `reconcile_csv_files.py`
+- yt-dlp command flags and rate-limit tuning parameters
 - scoring weights and keyword lists in the matcher
 - reconcile filename matching rules in `reconcile_csv_files.py`
 - documentation files
