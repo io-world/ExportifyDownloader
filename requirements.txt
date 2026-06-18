@@ -1,0 +1,5 @@
+# Python package dependencies
+yt-dlp
+
+# Note: ffmpeg is required by the downloader but is a system dependency,
+# not a pip package. Install ffmpeg separately and ensure it is on PATH.

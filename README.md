@@ -7,12 +7,15 @@ Get the playlist CSV from https://exportify.app/ and place the exported file in 
 ## Current Features
 
 - Uses one CSV as both input and progress tracker.
-- Uses stricter SpotDL-style match logic (duration + artist/title token overlap + version checks).
+- Searches **YouTube Music only** using yt-dlp for better relevance.
+- Uses SpotDL-style weighted matching (duration proximity + title/artist overlap scoring instead of hard rejects).
 - Extracts audio and requests MP3 at 320 kbps during download.
 - Embeds metadata into output files from CSV fields (title, artist, album, date, ISRC, row ID, Spotify track ID).
 - Re-runs skip files that already exist and can retag existing downloaded files.
 - Streams live row-by-row console logs so you can see what track is being checked, downloaded, skipped, or failing.
 - Includes a reconcile utility to scan existing audio files and write matching paths back into the CSV.
+- Supports processing order by track number (ascending, descending, or default CSV order).
+- Configurable yt-dlp throttling profile (rate limiting, sleep intervals) tuned by default for YouTube Music compliance.
 
 ## CSV Tracking Columns
 
@@ -70,10 +73,15 @@ Common options:
 .\run_playlist_downloader.ps1 -CsvPath .\exportify.app\3_dnb_dance_floor.csv
 ```
 
-Default config currently ships with:
+Default config ships with a YouTube-friendly tuning profile:
 
-- `Limit: 10`
-- `SleepRequests: 0`
+- `Limit: 40`
+- `SleepRequests: 1.1`
+- `LimitRate: 4M`
+- `ThrottledRate: 50K`
+- `SleepInterval: 10`
+- `MaxSleepInterval: 35`
+- `TrackOrder: descending` (by Track Number)
 
 ## Metadata Behavior
 

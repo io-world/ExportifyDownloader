@@ -15,6 +15,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import quote_plus
 
 REQUIRED_COLUMNS = ["Track Name", "Artist Name(s)", "Track Duration (ms)"]
 TRACKING_COLUMNS = [
@@ -95,6 +96,34 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="Delay in seconds between yt-dlp requests to reduce rate-limit issues (default: 1.0).",
     )
+    parser.add_argument(
+        "--limit-rate",
+        default="",
+        help="yt-dlp download limit rate (for example: 4M).",
+    )
+    parser.add_argument(
+        "--throttled-rate",
+        default="",
+        help="yt-dlp throttled rate fallback (for example: 50K).",
+    )
+    parser.add_argument(
+        "--sleep-interval",
+        type=float,
+        default=0.0,
+        help="yt-dlp minimum random sleep interval between requests in seconds.",
+    )
+    parser.add_argument(
+        "--max-sleep-interval",
+        type=float,
+        default=0.0,
+        help="yt-dlp maximum random sleep interval between requests in seconds.",
+    )
+    parser.add_argument(
+        "--track-order",
+        choices=["default", "ascending", "descending"],
+        default="default",
+        help="Process rows by CSV Track Number order.",
+    )
     return parser.parse_args()
 
 
@@ -136,15 +165,30 @@ def run_yt_dlp_json(
     cookies_from_browser: str = "",
     cookies_file: Optional[Path] = None,
     sleep_requests: float = 0.0,
+    limit_rate: str = "",
+    throttled_rate: str = "",
+    sleep_interval: float = 0.0,
+    max_sleep_interval: float = 0.0,
 ) -> List[Dict[str, object]]:
+    search_url = f"https://music.youtube.com/search?q={quote_plus(query)}"
     cmd = [
         "yt-dlp",
         "--dump-single-json",
         "--no-warnings",
-        f"ytsearch{limit}:{query}",
+        "--playlist-end",
+        str(limit),
+        search_url,
     ]
     if sleep_requests > 0:
         cmd.extend(["--sleep-requests", str(sleep_requests)])
+    if limit_rate:
+        cmd.extend(["--limit-rate", limit_rate])
+    if throttled_rate:
+        cmd.extend(["--throttled-rate", throttled_rate])
+    if sleep_interval > 0:
+        cmd.extend(["--sleep-interval", str(sleep_interval)])
+        if max_sleep_interval > 0:
+            cmd.extend(["--max-sleep-interval", str(max_sleep_interval)])
     cmd.extend(build_cookie_args(cookies_from_browser, cookies_file))
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -228,6 +272,13 @@ def count_token_hits(tokens: List[str], *fields: str) -> int:
     return sum(1 for token in tokens if token and token in merged)
 
 
+def token_overlap_ratio(tokens: List[str], *fields: str) -> float:
+    if not tokens:
+        return 0.0
+    hits = count_token_hits(tokens, *fields)
+    return hits / max(1, len(tokens))
+
+
 def score_candidate(
     candidate: Dict[str, object],
     expected_duration_s: int,
@@ -241,7 +292,8 @@ def score_candidate(
         return None
 
     delta = abs(duration - expected_duration_s)
-    if delta > tolerance:
+    # SpotDL-style behavior: prefer best weighted result, but reject extreme duration misses.
+    if delta > max(tolerance * 2, 20):
         return None
 
     title = normalize_text(str(candidate.get("title", "")))
@@ -250,37 +302,45 @@ def score_candidate(
 
     track_hits = count_token_hits(track_tokens, title)
     artist_hits = count_token_hits(artist_tokens, title, uploader)
+    track_overlap = token_overlap_ratio(track_tokens, title)
+    artist_overlap = token_overlap_ratio(artist_tokens, title, uploader)
 
-    # Require meaningful overlap to reduce false positives.
-    min_track_hits = max(1, len(track_tokens) // 2)
-    if track_hits < min_track_hits:
+    # Guard against obviously unrelated results while still allowing weighted ranking.
+    if track_overlap < 0.30:
         return None
-    if artist_tokens and artist_hits < 1:
+    if artist_tokens and artist_overlap < 0.20:
         return None
-
-    # If the Spotify track includes a version marker (VIP, remix, etc.), keep only that version.
-    for version in required_versions:
-        if version not in combined:
-            return None
 
     penalty = 0
     for noisy in NOISY_KEYWORDS:
         if has_phrase(combined, noisy):
+            penalty += 90
+
+    # Version markers are preferred, not absolute hard-fails.
+    for version in required_versions:
+        if version not in combined:
             penalty += 120
 
     # Penalize version mismatch when candidate has extra version words not present in track metadata.
     candidate_versions = [v for v in VERSION_KEYWORDS if has_phrase(combined, v)]
     for version in candidate_versions:
         if version not in required_versions:
-            penalty += 70
+            penalty += 45
 
     if has_phrase(combined, "official audio"):
         penalty -= 30
     if has_phrase(uploader, "topic"):
         penalty -= 25
 
-    # Lower score is better: duration delta first, then prefer more token hits.
-    score = delta * 100 - (track_hits * 30 + artist_hits * 20) + penalty
+    # Lower score is better.
+    # Weighting favors title/artist overlap heavily, then duration proximity.
+    score = (
+        delta * 35
+        - int(track_overlap * 280)
+        - int(artist_overlap * 180)
+        - (track_hits * 18 + artist_hits * 12)
+        + penalty
+    )
     return score, delta
 
 
@@ -353,12 +413,49 @@ def reset_result_columns(row: Dict[str, str]) -> None:
             row[col] = ""
 
 
+def track_number_value(row: Dict[str, str]) -> Optional[int]:
+    value = (row.get("Track Number") or "").strip()
+    if value.isdigit():
+        return int(value)
+    return None
+
+
+def get_row_processing_order(rows: List[Dict[str, str]], track_order: str) -> List[int]:
+    order = list(range(len(rows)))
+    if track_order == "default":
+        return order
+
+    if track_order == "ascending":
+        return sorted(
+            order,
+            key=lambda i: (
+                track_number_value(rows[i]) is None,
+                track_number_value(rows[i]) if track_number_value(rows[i]) is not None else 0,
+                i,
+            ),
+        )
+
+    # descending
+    return sorted(
+        order,
+        key=lambda i: (
+            track_number_value(rows[i]) is None,
+            -(track_number_value(rows[i]) if track_number_value(rows[i]) is not None else 0),
+            i,
+        ),
+    )
+
+
 def download_audio(
     url: str,
     output_template: str,
     cookies_from_browser: str = "",
     cookies_file: Optional[Path] = None,
     sleep_requests: float = 0.0,
+    limit_rate: str = "",
+    throttled_rate: str = "",
+    sleep_interval: float = 0.0,
+    max_sleep_interval: float = 0.0,
 ) -> None:
     cmd = [
         "yt-dlp",
@@ -381,6 +478,14 @@ def download_audio(
     ]
     if sleep_requests > 0:
         cmd.extend(["--sleep-requests", str(sleep_requests)])
+    if limit_rate:
+        cmd.extend(["--limit-rate", limit_rate])
+    if throttled_rate:
+        cmd.extend(["--throttled-rate", throttled_rate])
+    if sleep_interval > 0:
+        cmd.extend(["--sleep-interval", str(sleep_interval)])
+        if max_sleep_interval > 0:
+            cmd.extend(["--max-sleep-interval", str(max_sleep_interval)])
     cmd.extend(build_cookie_args(cookies_from_browser, cookies_file))
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -540,8 +645,12 @@ def main() -> int:
     skipped = 0
     unresolved = 0
     failed = 0
+    row_order = get_row_processing_order(rows, args.track_order)
+    log(f"Processing order: track number {args.track_order}")
 
-    for idx, row in enumerate(rows, start=1):
+    for row_index in row_order:
+        idx = row_index + 1
+        row = rows[row_index]
         if args.limit and processed >= args.limit:
             break
 
@@ -589,6 +698,10 @@ def main() -> int:
                 args.cookies_from_browser.strip(),
                 cookies_file,
                 args.sleep_requests,
+                args.limit_rate.strip(),
+                args.throttled_rate.strip(),
+                args.sleep_interval,
+                args.max_sleep_interval,
             )
             picked = choose_candidate(
                 candidates,
@@ -636,6 +749,10 @@ def main() -> int:
                 args.cookies_from_browser.strip(),
                 cookies_file,
                 args.sleep_requests,
+                args.limit_rate.strip(),
+                args.throttled_rate.strip(),
+                args.sleep_interval,
+                args.max_sleep_interval,
             )
             saved_file = resolve_downloaded_file(output_dir, base_name)
             if saved_file is not None:

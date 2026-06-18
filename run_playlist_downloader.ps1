@@ -24,6 +24,22 @@ param(
     [double]$SleepRequests = 1.0,
 
     [Parameter(Mandatory = $false)]
+    [string]$LimitRate = "",
+
+    [Parameter(Mandatory = $false)]
+    [string]$ThrottledRate = "",
+
+    [Parameter(Mandatory = $false)]
+    [double]$SleepInterval = 0,
+
+    [Parameter(Mandatory = $false)]
+    [double]$MaxSleepInterval = 0,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("default", "ascending", "descending")]
+    [string]$TrackOrder = "default",
+
+    [Parameter(Mandatory = $false)]
     [string]$CookiesFromBrowser = "",
 
     [Parameter(Mandatory = $false)]
@@ -74,6 +90,11 @@ if (Test-Path $ConfigPath) {
     Set-FromConfig -Name "SearchResults" -Value $config.SearchResults
     Set-FromConfig -Name "Limit" -Value $config.Limit
     Set-FromConfig -Name "SleepRequests" -Value $config.SleepRequests
+    Set-FromConfig -Name "LimitRate" -Value $config.LimitRate
+    Set-FromConfig -Name "ThrottledRate" -Value $config.ThrottledRate
+    Set-FromConfig -Name "SleepInterval" -Value $config.SleepInterval
+    Set-FromConfig -Name "MaxSleepInterval" -Value $config.MaxSleepInterval
+    Set-FromConfig -Name "TrackOrder" -Value $config.TrackOrder
     Set-FromConfig -Name "CookiesFromBrowser" -Value $config.CookiesFromBrowser
     Set-FromConfig -Name "CookiesFile" -Value $config.CookiesFile
 
@@ -102,8 +123,19 @@ function Invoke-CsvDownload {
         "--duration-tolerance", $DurationTolerance,
         "--search-results", $SearchResults,
         "--limit", $Limit,
-        "--sleep-requests", $SleepRequests
+        "--sleep-requests", $SleepRequests,
+        "--sleep-interval", $SleepInterval,
+        "--max-sleep-interval", $MaxSleepInterval,
+        "--track-order", $TrackOrder
     )
+
+    if ($LimitRate -ne "") {
+        $arguments += @("--limit-rate", $LimitRate)
+    }
+
+    if ($ThrottledRate -ne "") {
+        $arguments += @("--throttled-rate", $ThrottledRate)
+    }
 
     if ($ForceRedownload) {
         $arguments += "--force-redownload"
@@ -135,7 +167,7 @@ function Invoke-CsvDownload {
         Write-Host "Starting: $csvName"
     }
     Write-Host "  CSV path: $TargetCsvPath"
-    Write-Host "  Settings: tolerance=$DurationTolerance searchResults=$SearchResults limit=$Limit sleepRequests=$SleepRequests forceRedownload=$ForceRedownload"
+    Write-Host "  Settings: tolerance=$DurationTolerance searchResults=$SearchResults limit=$Limit sleepRequests=$SleepRequests sleepInterval=$SleepInterval maxSleepInterval=$MaxSleepInterval limitRate=$LimitRate throttledRate=$ThrottledRate trackOrder=$TrackOrder forceRedownload=$ForceRedownload"
 
     & $pythonPath -u @arguments | Out-Host
     $exitCode = $LASTEXITCODE
