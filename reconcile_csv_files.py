@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from csv_work_state import playlist_stem, work_csv_path_for
 from spotify_csv_yt_dlp import (
     STATUS_DOWNLOADED,
     ensure_tracking_columns,
@@ -47,7 +48,8 @@ def parse_args() -> argparse.Namespace:
 
 def discover_csv_path() -> Optional[Path]:
     search_roots = [Path.cwd() / "exportify.app", Path.cwd()]
-    candidates: List[Path] = []
+    work_candidates: List[Path] = []
+    source_candidates: List[Path] = []
     seen = set()
 
     for root in search_roots:
@@ -57,11 +59,26 @@ def discover_csv_path() -> Optional[Path]:
             resolved = candidate.resolve()
             if resolved not in seen:
                 seen.add(resolved)
-                candidates.append(resolved)
+                if resolved.stem.lower().endswith("_work"):
+                    work_candidates.append(resolved)
+                else:
+                    source_candidates.append(resolved)
 
-    if len(candidates) == 1:
-        return candidates[0]
+    if len(work_candidates) == 1:
+        return work_candidates[0]
+    if len(source_candidates) == 1:
+        return source_candidates[0]
     return None
+
+
+def resolve_target_csv_path(path: Path) -> Path:
+    if path.stem.lower().endswith("_work"):
+        return path
+    sibling_work = work_csv_path_for(path)
+    if sibling_work.exists():
+        print(f"Using work CSV: {sibling_work}")
+        return sibling_work
+    return path
 
 
 def collect_audio_files(files_dir: Path) -> Dict[str, Path]:
@@ -110,11 +127,17 @@ def main() -> int:
         )
         return 2
 
+    csv_path = resolve_target_csv_path(csv_path)
+
     if not csv_path.exists():
         print(f"CSV not found: {csv_path}", file=sys.stderr)
         return 1
 
-    files_dir = args.files_dir.resolve() if args.files_dir is not None else (csv_path.parent / csv_path.stem).resolve()
+    files_dir = (
+        args.files_dir.resolve()
+        if args.files_dir is not None
+        else (csv_path.parent / playlist_stem(csv_path)).resolve()
+    )
     if not files_dir.exists() or not files_dir.is_dir():
         print(f"Files folder not found: {files_dir}", file=sys.stderr)
         return 1

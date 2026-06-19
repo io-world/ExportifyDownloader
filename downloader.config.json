@@ -4,13 +4,13 @@
   "DurationTolerance": 10,
   "SearchResults": 6,
   "ForceRedownload": false,
-  "Limit": 40,
+  "Limit": 60,
   "SleepRequests": 1.1,
   "LimitRate": "4M",
   "ThrottledRate": "50K",
   "SleepInterval": 10,
   "MaxSleepInterval": 35,
-  "TrackOrder": "descending",
+  "IdOrder": "descending",
   "CookiesFromBrowser": "",
   "CookiesFile": ".\\music youtube cookies.txt"
 }

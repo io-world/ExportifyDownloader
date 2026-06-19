@@ -29,13 +29,16 @@ The script writes the following tag keys when values exist:
 - disc
 - isrc
 - spotify_track_id
+- row_key
 - row_id
 - comment
 
 Notes:
 
-- `track` is row-aware and mirrors the CSV row index.
+- `track` is row-aware and mirrors the persistent work CSV `id` when available.
 - `spotify_track_id` is parsed from `Track URI`.
+- `row_key` is the explicit per-row identity key used by the work CSV.
+- `row_id` also stores the persistent work CSV `id`.
 - `comment` stores both row and Spotify IDs.
 
 ## Windows Compatibility
@@ -61,5 +64,5 @@ If `output_file` is blank but the audio file already exists on disk, first run `
 Use ffprobe to confirm written tags:
 
 ```powershell
-ffprobe -v error -show_entries format_tags=title,artist,album,track,row_id,spotify_track_id,comment -of default=noprint_wrappers=1:nokey=0 ".\exportify.app\3_dnb_dance_floor\<file>.m4a"
+ffprobe -v error -show_entries format_tags=title,artist,album,track,row_id,row_key,spotify_track_id,comment -of default=noprint_wrappers=1:nokey=0 ".\exportify.app\3_dnb_dance_floor\<file>.m4a"
 ```

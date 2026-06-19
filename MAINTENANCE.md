@@ -9,20 +9,20 @@ Playlist CSV files are expected to be exported from https://exportify.app/ and p
 Use `downloader.config.json` for default values (tolerance, search results, sleep delay, cookies, etc.).
 
 - CLI arguments override config values.
-- Use `-ConfigPath` to load a different config file.
+- Use `--config-path` to load a different config file.
 - `Limit` controls how many rows are processed in one run. `0` means all rows.
-- Current default values are `Limit: 10` and `SleepRequests: 0`.
+- Current default values are `Limit: 60` and `SleepRequests: 1.1`.
 
 Example:
 
-```powershell
-.\run_playlist_downloader.ps1 -ConfigPath .\downloader.config.json
+```bash
+python main.py --config-path ./downloader.config.json
 ```
 
 ## 1) Normal Run
 
-```powershell
-.\run_playlist_downloader.ps1 -CsvPath .\exportify.app\3_dnb_dance_floor.csv
+```bash
+python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv
 ```
 
 Live console feedback now shows each row as it moves through `checking`, `downloading`, `downloaded`, `skip`, `unresolved`, or `error`.
@@ -31,14 +31,14 @@ Live console feedback now shows each row as it moves through `checking`, `downlo
 
 Retry unresolved and error rows with cookies:
 
-```powershell
-.\run_playlist_downloader.ps1 -CsvPath .\exportify.app\3_dnb_dance_floor.csv -CookiesFromBrowser edge
+```bash
+python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --cookies-from-browser edge
 ```
 
 Force retry of all downloaded rows:
 
-```powershell
-.\run_playlist_downloader.ps1 -CsvPath .\exportify.app\3_dnb_dance_floor.csv -ForceRedownload
+```bash
+python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --force-redownload
 ```
 
 ## 3) Full Retag-Only Pass
@@ -51,7 +51,7 @@ import csv
 from pathlib import Path
 from spotify_csv_yt_dlp import build_audio_metadata, embed_audio_metadata, STATUS_DOWNLOADED
 
-csv_path = Path(r".\exportify.app\3_dnb_dance_floor.csv")
+csv_path = Path(r".\exportify.app\3_dnb_dance_floor_work.csv")
 rows = list(csv.DictReader(csv_path.open("r", newline="", encoding="utf-8-sig")))
 
 updated = 0
@@ -61,7 +61,8 @@ for idx, row in enumerate(rows, start=1):
     p = Path((row.get("output_file") or "").strip())
     if not p.exists():
         continue
-    embed_audio_metadata(p, build_audio_metadata(row, idx))
+    row_id = row.get("id") or str(idx)
+    embed_audio_metadata(p, build_audio_metadata(row, int(row_id)))
     updated += 1
 
 print(f"retagged={updated}")
@@ -73,11 +74,14 @@ $code | .\.venv\Scripts\python.exe -
 
 If a row is `downloaded` but `output_file` is empty, rebuild path references by matching file stems, then retag.
 
+Note: with the source/work CSV model, reconcile updates the `_work.csv`. If you pass a source CSV and a sibling `_work.csv` exists, the script automatically switches to `_work.csv`.
+
 Run the reconcile utility directly:
 
 ```powershell
 .\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv
-.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --files-dir .\3_dnb_dance_floor
+.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor_work.csv
+.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --files-dir .\exportify.app\3_dnb_dance_floor
 .\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --clear-missing
 ```
 
@@ -107,7 +111,7 @@ ffprobe -v error -show_entries format_tags=title,artist,album,track,row_id,spoti
 
 ## 6) Common Issues
 
-- HTTP 403 on YouTube: pass `-CookiesFromBrowser`.
-- Repeated `This content isn't available, try again later` errors: stop the run and retry later or increase `-SleepRequests`.
+- HTTP 403 on YouTube: pass `--cookies-from-browser`.
+- Repeated `This content isn't available, try again later` errors: stop the run and retry later or increase `--sleep-requests`.
 - Blank title in Windows: ensure file was retagged and refresh Explorer cache.
 - Missing output file path in CSV: reconcile output path and rerun retag.
