@@ -12,28 +12,29 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from candidate_matcher import choose_candidate
-from csv_work_state import (
+from .matcher import choose_candidate
+from .csv_work_state import (
     ID_COLUMN,
-    ROW_KEY_COLUMN,
     TRACKING_COLUMNS,
     ensure_row_ids,
     ensure_row_keys,
-    ordered_work_fieldnames,
+    ensure_tracking_columns,
     playlist_stem,
+    write_csv,
 )
-from downloader_utils import (
+from .utils import (
     first_artist,
     log,
     shorten_error_message,
     stable_base_name,
     utc_now,
 )
-from metadata_writer import build_audio_metadata, embed_audio_metadata
-from yt_dlp_interface import download_audio, resolve_downloaded_file, run_yt_dlp_json
+from .metadata import build_audio_metadata, embed_audio_metadata
+from .yt_dlp_interface import download_audio, resolve_downloaded_file, run_yt_dlp_json
 
 REQUIRED_COLUMNS = ["Track Name", "Artist Name(s)", "Track Duration (ms)"]
 
+STATUS_RESOLVED = "resolved"
 STATUS_DOWNLOADED = "downloaded"
 STATUS_UNRESOLVED = "unresolved"
 STATUS_ERROR = "error"
@@ -62,6 +63,19 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=6,
         help="Number of YouTube candidates to inspect for each track (default: 6).",
+    )
+    parser.add_argument(
+        "--download-enabled",
+        action="store_true",
+        default=True,
+        dest="download_enabled",
+        help="Download audio after resolving a YouTube Music candidate (default: enabled).",
+    )
+    parser.add_argument(
+        "--resolve-only",
+        action="store_false",
+        dest="download_enabled",
+        help="Resolve YouTube Music candidates into the work CSV without downloading audio.",
     )
     parser.add_argument(
         "--force-redownload",
@@ -126,27 +140,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def write_csv(path: Path, rows: List[Dict[str, str]], fieldnames: List[str]) -> None:
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    with temp_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
-        writer.writeheader()
-        writer.writerows(rows)
-    temp_path.replace(path)
-
-
-def ensure_tracking_columns(fieldnames: List[str]) -> List[str]:
-    updated = list(fieldnames)
-    if ID_COLUMN not in updated:
-        updated.append(ID_COLUMN)
-    if ROW_KEY_COLUMN not in updated:
-        updated.append(ROW_KEY_COLUMN)
-    for col in TRACKING_COLUMNS:
-        if col not in updated:
-            updated.append(col)
-    return ordered_work_fieldnames(updated)
-
-
 def metadata_row_id(row: Dict[str, str], row_index: int) -> int:
     raw_value = (row.get(ID_COLUMN) or "").strip()
     if raw_value.isdigit() and int(raw_value) > 0:
@@ -166,6 +159,10 @@ def should_skip_row(row: Dict[str, str], force_redownload: bool) -> bool:
         if file_path.exists():
             return True
     return False
+
+
+def has_saved_resolution(row: Dict[str, str]) -> bool:
+    return bool((row.get("youtube_url") or "").strip())
 
 
 def has_tracking_data(row: Dict[str, str]) -> bool:
@@ -251,15 +248,17 @@ def main() -> int:
     ensure_row_keys(rows)
 
     # Persist added columns immediately so CSV becomes the source of state.
-    write_csv(csv_path, rows, fieldnames)
+    write_csv(csv_path, fieldnames, rows)
 
     processed = 0
     downloaded = 0
+    resolved = 0
     skipped = 0
     unresolved = 0
     failed = 0
     row_order = get_row_processing_order(rows, args.id_order)
     log(f"Processing order: id {args.id_order}")
+    log(f"Download enabled: {args.download_enabled}")
 
     for row_index in row_order:
         idx = row_index + 1
@@ -267,7 +266,12 @@ def main() -> int:
         if args.limit and processed >= args.limit:
             break
 
-        if not args.force_redownload and has_tracking_data(row):
+        status = (row.get("download_status") or "").strip().lower()
+        saved_resolution = has_saved_resolution(row)
+
+        if not args.force_redownload and status == STATUS_RESOLVED and saved_resolution and args.download_enabled:
+            pass
+        elif not args.force_redownload and has_tracking_data(row):
             skipped += 1
             log(f"[{idx}] skip: tracking columns already populated")
             continue
@@ -281,7 +285,7 @@ def main() -> int:
                     row["download_status"] = STATUS_ERROR
                     row["attempted_at"] = utc_now()
                     row["error_message"] = f"Metadata write failed: {str(exc).strip()[:350]}"
-                    write_csv(csv_path, rows, fieldnames)
+                    write_csv(csv_path, fieldnames, rows)
                     failed += 1
                     processed += 1
                     log(f"[{idx}] error: metadata update failed :: {shorten_error_message(str(exc))}")
@@ -299,7 +303,7 @@ def main() -> int:
             row["download_status"] = STATUS_ERROR
             row["attempted_at"] = utc_now()
             row["error_message"] = "Missing track, artist, or valid duration"
-            write_csv(csv_path, rows, fieldnames)
+            write_csv(csv_path, fieldnames, rows)
             failed += 1
             processed += 1
             log(f"[{idx}] error: invalid row metadata")
@@ -307,55 +311,79 @@ def main() -> int:
 
         expected_duration_s = round(int(duration_ms_raw) / 1000)
         query = f"{artist} {track}"
-        log(f"[{idx}] checking: {artist} - {track}")
 
         try:
-            candidates = run_yt_dlp_json(
-                query,
-                args.search_results,
-                args.cookies_from_browser.strip(),
-                cookies_file,
-                args.sleep_requests,
-                args.limit_rate.strip(),
-                args.throttled_rate.strip(),
-                args.sleep_interval,
-                args.max_sleep_interval,
-            )
-            picked = choose_candidate(
-                candidates,
-                expected_duration_s,
-                artist,
-                track,
-                args.duration_tolerance,
-            )
-            if picked is None:
-                row["download_status"] = STATUS_UNRESOLVED
-                row["attempted_at"] = utc_now()
-                row["error_message"] = f"No match within {args.duration_tolerance}s"
-                row["youtube_url"] = ""
-                row["selected_title"] = ""
-                row["selected_duration_s"] = ""
-                row["duration_delta_s"] = ""
-                write_csv(csv_path, rows, fieldnames)
-                unresolved += 1
-                processed += 1
-                log(f"[{idx}] unresolved: {artist} - {track}")
-                continue
+            if saved_resolution and status == STATUS_RESOLVED and not args.force_redownload:
+                url = str(row.get("youtube_url") or "").strip()
+                title = str(row.get("selected_title") or "").strip()
+                selected_duration_raw = (row.get("selected_duration_s") or "").strip()
+                candidate_duration = int(selected_duration_raw) if selected_duration_raw.isdigit() else None
+                delta_raw = (row.get("duration_delta_s") or "").strip()
+                delta = int(delta_raw) if delta_raw.isdigit() else 0
+                log(f"[{idx}] using saved resolution: {artist} - {track} <- {title or url}")
+            else:
+                log(f"[{idx}] checking: {artist} - {track}")
+                candidates = run_yt_dlp_json(
+                    query,
+                    args.search_results,
+                    args.cookies_from_browser.strip(),
+                    cookies_file,
+                    args.sleep_requests,
+                    args.limit_rate.strip(),
+                    args.throttled_rate.strip(),
+                    args.sleep_interval,
+                    args.max_sleep_interval,
+                )
+                picked = choose_candidate(
+                    candidates,
+                    expected_duration_s,
+                    artist,
+                    track,
+                    args.duration_tolerance,
+                )
+                if picked is None:
+                    row["download_status"] = STATUS_UNRESOLVED
+                    row["attempted_at"] = utc_now()
+                    row["error_message"] = f"No match within {args.duration_tolerance}s"
+                    row["youtube_url"] = ""
+                    row["selected_title"] = ""
+                    row["selected_duration_s"] = ""
+                    row["duration_delta_s"] = ""
+                    write_csv(csv_path, fieldnames, rows)
+                    unresolved += 1
+                    processed += 1
+                    log(f"[{idx}] unresolved: {artist} - {track}")
+                    continue
 
-            candidate, delta = picked
-            url = str(candidate.get("webpage_url") or "").strip()
-            title = str(candidate.get("title") or "").strip()
-            candidate_duration = candidate.get("duration")
+                candidate, delta = picked
+                url = str(candidate.get("webpage_url") or "").strip()
+                title = str(candidate.get("title") or "").strip()
+                candidate_duration = candidate.get("duration")
 
-            if not url:
-                row["download_status"] = STATUS_ERROR
+                if not url:
+                    row["download_status"] = STATUS_ERROR
+                    row["attempted_at"] = utc_now()
+                    row["error_message"] = "Matched candidate missing URL"
+                    write_csv(csv_path, fieldnames, rows)
+                    failed += 1
+                    processed += 1
+                    log(f"[{idx}] error: match missing URL")
+                    continue
+
+                row["download_status"] = STATUS_RESOLVED
+                row["youtube_url"] = url
+                row["selected_title"] = title
+                row["selected_duration_s"] = str(candidate_duration if isinstance(candidate_duration, int) else "")
+                row["duration_delta_s"] = str(delta)
                 row["attempted_at"] = utc_now()
-                row["error_message"] = "Matched candidate missing URL"
-                write_csv(csv_path, rows, fieldnames)
-                failed += 1
-                processed += 1
-                log(f"[{idx}] error: match missing URL")
-                continue
+                row["error_message"] = ""
+                write_csv(csv_path, fieldnames, rows)
+                resolved += 1
+
+                if not args.download_enabled:
+                    processed += 1
+                    log(f"[{idx}] resolved: {artist} - {track} <- {title}")
+                    continue
 
             base_name = stable_base_name(artist, track)
             output_template = str(output_dir / f"{base_name}.%(ext)s")
@@ -378,15 +406,11 @@ def main() -> int:
                 embed_audio_metadata(saved_file, build_audio_metadata(row, metadata_row_id(row, idx)))
 
             row["download_status"] = STATUS_DOWNLOADED
-            row["youtube_url"] = url
-            row["selected_title"] = title
-            row["selected_duration_s"] = str(candidate_duration if isinstance(candidate_duration, int) else "")
-            row["duration_delta_s"] = str(delta)
             row["output_file"] = str(saved_file.resolve()) if saved_file else ""
             row["attempted_at"] = utc_now()
             row["error_message"] = ""
 
-            write_csv(csv_path, rows, fieldnames)
+            write_csv(csv_path, fieldnames, rows)
             downloaded += 1
             processed += 1
             log(f"[{idx}] downloaded: {artist} - {track}")
@@ -395,12 +419,13 @@ def main() -> int:
             row["download_status"] = STATUS_ERROR
             row["attempted_at"] = utc_now()
             row["error_message"] = str(exc).strip()[:400]
-            write_csv(csv_path, rows, fieldnames)
+            write_csv(csv_path, fieldnames, rows)
             failed += 1
             processed += 1
             log(f"[{idx}] error: {artist} - {track} :: {shorten_error_message(str(exc))}")
 
     log("\nRun complete")
+    log(f"  resolved:   {resolved}")
     log(f"  downloaded: {downloaded}")
     log(f"  skipped:    {skipped}")
     log(f"  unresolved: {unresolved}")

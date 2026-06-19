@@ -8,16 +8,13 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from launcher_config import resolve_input_path
+from .config import resolve_input_path
 
 
 def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[str, Any], current: int, total: int) -> int:
-    script_path = (script_dir / "spotify_csv_yt_dlp.py").resolve()
-    if not script_path.exists():
-        raise RuntimeError(f"Downloader script not found: {script_path}")
-
     arguments: List[str] = [
-        str(script_path),
+        "-m",
+        "exportify_downloader.core.downloader",
         str(target_csv_path),
         "--duration-tolerance",
         str(settings["DurationTolerance"]),
@@ -34,6 +31,9 @@ def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[
         "--id-order",
         str(settings["IdOrder"]),
     ]
+
+    if not settings["DownloadEnabled"]:
+        arguments.append("--resolve-only")
 
     if settings["LimitRate"]:
         arguments.extend(["--limit-rate", str(settings["LimitRate"])])
@@ -66,6 +66,7 @@ def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[
         "  Settings: "
         f"tolerance={settings['DurationTolerance']} "
         f"searchResults={settings['SearchResults']} "
+        f"downloadEnabled={settings['DownloadEnabled']} "
         f"limit={settings['Limit']} "
         f"sleepRequests={settings['SleepRequests']} "
         f"sleepInterval={settings['SleepInterval']} "
@@ -76,7 +77,7 @@ def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[
         f"forceRedownload={settings['ForceRedownload']}"
     )
 
-    proc = subprocess.run([sys.executable, "-u", *arguments], check=False)
+    proc = subprocess.run([sys.executable, "-u", *arguments], check=False, cwd=script_dir)
     if proc.returncode == 0:
         print(f"Completed: {csv_name}")
         return 0

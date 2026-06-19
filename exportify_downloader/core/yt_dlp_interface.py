@@ -10,7 +10,7 @@ from urllib.parse import quote_plus
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from downloader_utils import parse_rate_limit
+from .utils import parse_rate_limit
 
 
 def build_ydl_options(

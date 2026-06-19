@@ -1,6 +1,6 @@
 # Metadata Tagging Guide
 
-This project writes metadata from CSV rows into downloaded audio files using ffmpeg.
+This project writes metadata from CSV rows into downloaded audio files using ffmpeg. The same metadata-writing path is also used by `reconcile_metadata.py` to refresh tags for local files without downloading anything.
 
 ## Source Fields
 
@@ -57,7 +57,7 @@ Common reasons:
 - File name contains special characters and lookup logic misses it.
 - Explorer metadata cache has stale values.
 
-If `output_file` is blank but the audio file already exists on disk, first run `reconcile_csv_files.py` to restore the CSV path reference, then run the retag flow.
+If `output_file` is blank but the audio file already exists on disk, first run `reconcile_csv_files.py` to restore the CSV path reference, then run `reconcile_metadata.py` to refresh tags.
 
 ## Validation Command
 

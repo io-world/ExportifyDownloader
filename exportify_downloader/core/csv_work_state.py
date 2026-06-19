@@ -8,7 +8,7 @@ import hashlib
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from downloader_utils import extract_spotify_track_id, normalize_text
+from .utils import extract_spotify_track_id, normalize_text
 
 ID_COLUMN = "id"
 ROW_KEY_COLUMN = "row_key"
@@ -102,6 +102,18 @@ def ensure_all_columns(rows: List[Dict[str, str]], fieldnames: List[str]) -> Non
 def ordered_work_fieldnames(fieldnames: List[str]) -> List[str]:
     ordered = [col for col in fieldnames if col != ID_COLUMN]
     return [ID_COLUMN, *ordered]
+
+
+def ensure_tracking_columns(fieldnames: List[str]) -> List[str]:
+    updated = list(fieldnames)
+    if ID_COLUMN not in updated:
+        updated.append(ID_COLUMN)
+    if ROW_KEY_COLUMN not in updated:
+        updated.append(ROW_KEY_COLUMN)
+    for col in TRACKING_COLUMNS:
+        if col not in updated:
+            updated.append(col)
+    return ordered_work_fieldnames(updated)
 
 
 def work_csv_path_for(source_csv_path: Path) -> Path:

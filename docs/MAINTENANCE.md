@@ -11,6 +11,7 @@ Use `downloader.config.json` for default values (tolerance, search results, slee
 - CLI arguments override config values.
 - Use `--config-path` to load a different config file.
 - `Limit` controls how many rows are processed in one run. `0` means all rows.
+- `DownloadEnabled` controls whether a run resolves only or resolves and downloads.
 - Current default values are `Limit: 60` and `SleepRequests: 1.1`.
 
 Example:
@@ -25,7 +26,19 @@ python main.py --config-path ./downloader.config.json
 python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv
 ```
 
-Live console feedback now shows each row as it moves through `checking`, `downloading`, `downloaded`, `skip`, `unresolved`, or `error`.
+Live console feedback now shows each row as it moves through `checking`, `resolved`, `using saved resolution`, `downloading`, `downloaded`, `skip`, `unresolved`, or `error`.
+
+Resolve-only pass without downloading audio:
+
+```bash
+python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --resolve-only
+```
+
+Equivalent config-driven flow:
+
+```json
+"DownloadEnabled": false
+```
 
 ## 2) Retry Problem Rows
 
@@ -45,29 +58,14 @@ python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --force-redownlo
 
 If audio files exist and you only want metadata updates:
 
-```powershell
-$code = @'
-import csv
-from pathlib import Path
-from spotify_csv_yt_dlp import build_audio_metadata, embed_audio_metadata, STATUS_DOWNLOADED
+```bash
+python reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv
+```
 
-csv_path = Path(r".\exportify.app\3_dnb_dance_floor_work.csv")
-rows = list(csv.DictReader(csv_path.open("r", newline="", encoding="utf-8-sig")))
+Only retag rows already marked downloaded:
 
-updated = 0
-for idx, row in enumerate(rows, start=1):
-    if (row.get("download_status") or "").strip().lower() != STATUS_DOWNLOADED:
-        continue
-    p = Path((row.get("output_file") or "").strip())
-    if not p.exists():
-        continue
-    row_id = row.get("id") or str(idx)
-    embed_audio_metadata(p, build_audio_metadata(row, int(row_id)))
-    updated += 1
-
-print(f"retagged={updated}")
-'@
-$code | .\.venv\Scripts\python.exe -
+```bash
+python reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv --downloaded-only
 ```
 
 ## 4) Reconcile Downloaded Rows With Empty output_file
@@ -100,7 +98,7 @@ Practical rule:
 Python syntax check:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile .\spotify_csv_yt_dlp.py .\reconcile_csv_files.py
+.\.venv\Scripts\python.exe -m py_compile .\main.py .\reconcile_csv_files.py .\reconcile_metadata.py .\exportify_downloader\launcher\main.py .\exportify_downloader\core\downloader.py .\exportify_downloader\scripts\reconcile.py .\exportify_downloader\scripts\reconcile_metadata.py
 ```
 
 Inspect tag values:

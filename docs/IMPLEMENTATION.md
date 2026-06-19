@@ -17,20 +17,24 @@ That means the downloader does not keep a separate database or cache. Each row i
 
 ## Main Files
 
-- `spotify_csv_yt_dlp.py`: core downloader, matcher, metadata writer, and CSV state updater
-- `main.py`: cross-platform launcher that loads config, resolves cookies, and runs one or more CSV files
-- `reconcile_csv_files.py`: repair utility that scans audio files already on disk and writes matching `output_file` values back into the CSV
+- `main.py`: thin root wrapper that calls the packaged launcher
+- `reconcile_csv_files.py`: thin root wrapper for the packaged reconcile utility
+- `reconcile_metadata.py`: thin root wrapper for metadata-only reconcile
+- `exportify_downloader/launcher/main.py`: packaged launcher that loads config, resolves cookies, and runs one or more CSV files
+- `exportify_downloader/core/downloader.py`: packaged core downloader, matcher coordinator, metadata writer, and CSV state updater
+- `exportify_downloader/scripts/reconcile.py`: packaged repair utility that scans audio files already on disk and writes matching `output_file` values back into the CSV
+- `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only maintenance utility for existing local files
 - `downloader.config.json`: default settings for the Python launcher
-- `README.md`: user-facing overview and basic usage
-- `MAINTENANCE.md`: operational recipes and recovery steps
-- `METADATA_TAGGING.md`: metadata-writing behavior and troubleshooting
+- `docs/README.md`: user-facing overview and basic usage
+- `docs/MAINTENANCE.md`: operational recipes and recovery steps
+- `docs/METADATA_TAGGING.md`: metadata-writing behavior and troubleshooting
 
 ## Execution Model
 
 There are two layers:
 
 1. `main.py` is the entrypoint for normal use.
-2. `spotify_csv_yt_dlp.py` performs the actual work.
+2. `exportify_downloader/core/downloader.py` performs the actual work.
 
 ### Launcher Responsibilities
 
@@ -51,7 +55,7 @@ The launcher should stay thin. Business logic belongs in Python, not the orchest
 
 ### Python Downloader Responsibilities
 
-`spotify_csv_yt_dlp.py` is the actual application.
+`exportify_downloader/core/downloader.py` is the actual application.
 
 It is responsible for:
 
@@ -59,8 +63,9 @@ It is responsible for:
 - appending tracking columns if missing
 - deciding whether a row should be skipped
 - searching YouTube through the `yt_dlp` Python API
+- persisting chosen YouTube matches into the work CSV before download
 - scoring candidate matches using project heuristics
-- downloading audio with the `yt_dlp` Python API
+- optionally downloading audio with the `yt_dlp` Python API when downloads are enabled
 - locating the final saved file on disk
 - writing metadata to the downloaded file via `ffmpeg`
 - writing status and result fields back to the CSV after each row
@@ -83,16 +88,17 @@ State is stored directly in the CSV through these columns:
 
 Current status values used by the Python script:
 
+- `resolved`
 - `downloaded`
 - `unresolved`
 - `error`
-- `skipped` exists as a constant/documented concept but is mainly a runtime outcome rather than a persisted path in the current flow
+- `skipped` is mainly a runtime outcome rather than a persisted path in the current flow
 
 Important behavior:
 
 - rows are updated in place in the `_work.csv` after each attempt
-- by default, only rows with blank tracking columns are processed
-- a row with any tracking data is skipped unless `--force-redownload` is used
+- by default, rows with tracking data are skipped unless `--force-redownload` is used
+- rows already marked `resolved` can continue directly into download when `DownloadEnabled` is true
 
 Identity behavior:
 
@@ -108,14 +114,16 @@ For each CSV row, the downloader roughly does this:
 
 1. Check whether the row should be skipped.
 2. Validate that track, primary artist, and duration are present.
-3. Build a YouTube Music search URL: `https://music.youtube.com/search?q=<artist+track>`.
-4. Use `yt_dlp` to extract candidates from YouTube Music search results.
-5. Score candidates using weighted overlap: duration penalty + title/artist token overlap + version/noise keyword penalties.
-6. Select the lowest-scored candidate (best match).
-7. Download the chosen candidate as audio with yt-dlp rate limiting applied.
-8. Resolve the actual saved output file from the target folder.
-9. Write metadata tags with `ffmpeg`.
-10. Write the result back into the CSV.
+3. Reuse a saved resolution when the row is already `resolved`.
+4. Otherwise, build a YouTube Music search URL: `https://music.youtube.com/search?q=<artist+track>`.
+5. Use `yt_dlp` to extract candidates from YouTube Music search results.
+6. Score candidates using weighted overlap: duration penalty + title/artist token overlap + version/noise keyword penalties.
+7. Select the lowest-scored candidate (best match).
+8. Persist the chosen candidate into the work CSV and mark the row `resolved`.
+9. If downloads are enabled, download the chosen candidate as audio with yt-dlp rate limiting applied.
+10. Resolve the actual saved output file from the target folder.
+11. Write metadata tags with `ffmpeg`.
+12. Write the final `downloaded` result back into the CSV.
 
 If any step fails, the row is marked `error` with a shortened `error_message`.
 
@@ -193,6 +201,8 @@ Use it when:
 
 It can auto-discover the CSV if there is exactly one `.csv` in `exportify.app`.
 
+`reconcile_metadata.py` exists for the related case where the local audio file is already on disk and you want to refresh metadata from the CSV without downloading. It reuses the same file-matching approach as reconcile, then writes metadata tags to the matched files.
+
 ## Configuration Model
 
 The config file currently includes:
@@ -201,6 +211,7 @@ The config file currently includes:
 - `CsvFolder`
 - `DurationTolerance`
 - `SearchResults`
+- `DownloadEnabled`
 - `ForceRedownload`
 - `Limit`
 - `SleepRequests`
@@ -213,10 +224,16 @@ Current meaning of the most important runtime settings:
 - `Limit`: maximum number of rows to process in one run; `0` means no limit
 - `SleepRequests`: delay between yt-dlp requests; current config default is `1.1`
 - `SearchResults`: how many YouTube candidates are inspected for matching
+- `DownloadEnabled`: whether the run stops after resolution or continues into download
 - `DurationTolerance`: maximum allowed duration mismatch in seconds
 - `IdOrder`: row processing order by persistent work CSV `id`
 
 CLI arguments override config values.
+
+`DownloadEnabled` is the main workflow switch:
+
+- `true`: resolve candidates and continue into download
+- `false`: resolve candidates into the work CSV and stop before download
 
 ## Logging Model
 
@@ -237,6 +254,8 @@ The launcher prints:
 The Python script prints live logs such as:
 
 - `[12] checking: Artist - Track`
+- `[12] resolved: Artist - Track <- Candidate Title`
+- `[12] using saved resolution: Artist - Track <- Candidate Title`
 - `[12] downloading: Artist - Track <- Candidate Title`
 - `[12] downloaded: Artist - Track`
 - `[12] skip: already downloaded`
@@ -264,13 +283,13 @@ Practical operator rules:
 ## Safe Change Areas
 
 These are usually safe to change with low arc (tuning profile, track order, limits)
-- launcher log formatting in `main.py`
-- Python log wording in `spotify_csv_yt_dlp.py`
+- launcher log formatting in `exportify_downloader/launcher/main.py`
+- Python log wording in `exportify_downloader/core/downloader.py`
 - scoring weights and token overlap thresholds in the matcher
-- reconcile filename matching rules in `reconcile_csv_files.py`
+- reconcile filename matching rules in `exportify_downloader/scripts/reconcile.py`
 - yt-dlp command flags and rate-limit tuning parameters
 - scoring weights and keyword lists in the matcher
-- reconcile filename matching rules in `reconcile_csv_files.py`
+- reconcile filename matching rules in `exportify_downloader/scripts/reconcile.py`
 - documentation files
 
 ## Risky Change Areas
@@ -282,7 +301,7 @@ These need more care because they affect persistence or operational correctness:
 - changing filename normalization in `stable_base_name()`
 - changing how `output_file` is resolved and persisted
 - changing metadata-writing semantics, especially `track`, `row_id`, and `spotify_track_id`
-- moving business rules from `spotify_csv_yt_dlp.py` into `main.py`
+- moving business rules from `exportify_downloader/core/downloader.py` into `exportify_downloader/launcher/main.py`
 
 If you touch any of those, validate against a real CSV, not just syntax checks.
 
@@ -291,7 +310,7 @@ If you touch any of those, validate against a real CSV, not just syntax checks.
 When implementing new behavior, use this order:
 
 1. update Python logic first
-2. keep `main.py` as a thin launcher
+2. keep `main.py` as a thin launcher wrapper
 3. run a one-row test with `--limit 1`
 4. inspect the CSV row that changed
 5. inspect the saved audio file if the change affects download or tags
@@ -300,7 +319,7 @@ When implementing new behavior, use this order:
 Good validation commands:
 
 ```bash
-python -m py_compile spotify_csv_yt_dlp.py reconcile_csv_files.py main.py
+python -m py_compile main.py reconcile_csv_files.py exportify_downloader/launcher/main.py exportify_downloader/core/downloader.py exportify_downloader/scripts/reconcile.py
 python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --limit 1
 python reconcile_csv_files.py
 ```
@@ -321,7 +340,7 @@ Reasonable future improvements:
 If you only remember five things about this codebase, remember these:
 
 1. the CSV is the source of truth for state
-2. `main.py` is orchestration, `spotify_csv_yt_dlp.py` is business logic
+2. `main.py` is the wrapper entrypoint, `exportify_downloader/launcher/main.py` is orchestration, and `exportify_downloader/core/downloader.py` is business logic
 3. reruns depend on `download_status` plus a real `output_file`
 4. YouTube rate limiting is the main operational constraint
-5. `reconcile_csv_files.py` is the repair tool when CSV state and disk state drift apart
+5. `reconcile_csv_files.py` is the wrapper entrypoint and `exportify_downloader/scripts/reconcile.py` is the repair tool when CSV state and disk state drift apart

@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from downloader_utils import clean_meta_value, extract_spotify_track_id, first_artist
+from .utils import clean_meta_value, extract_spotify_track_id, first_artist
 
 ROW_KEY_COLUMN = "row_key"
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from downloader_utils import normalize_text
+from .utils import normalize_text
 
 VERSION_KEYWORDS = {
     "remix",

@@ -13,6 +13,7 @@ DEFAULTS: Dict[str, Any] = {
     "CsvFolder": "./exportify.app",
     "DurationTolerance": 10,
     "SearchResults": 6,
+    "DownloadEnabled": True,
     "ForceRedownload": False,
     "Limit": 0,
     "SleepRequests": 1.0,
@@ -33,6 +34,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--csv-folder", "--CsvFolder", default=None, help="Folder containing CSV files.")
     parser.add_argument("--duration-tolerance", "--DurationTolerance", type=int, default=None)
     parser.add_argument("--search-results", "--SearchResults", type=int, default=None)
+    parser.add_argument("--download-enabled", "--DownloadEnabled", action="store_true", default=None, dest="download_enabled")
+    parser.add_argument("--resolve-only", action="store_false", dest="download_enabled")
     parser.add_argument("--force-redownload", "--ForceRedownload", action="store_true", default=None)
     parser.add_argument("--limit", "--Limit", type=int, default=None)
     parser.add_argument("--sleep-requests", "--SleepRequests", type=float, default=None)
@@ -72,6 +75,7 @@ def merged_settings(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[st
         "CsvFolder": args.csv_folder,
         "DurationTolerance": args.duration_tolerance,
         "SearchResults": args.search_results,
+        "DownloadEnabled": args.download_enabled,
         "ForceRedownload": args.force_redownload,
         "Limit": args.limit,
         "SleepRequests": args.sleep_requests,
