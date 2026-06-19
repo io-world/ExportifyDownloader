@@ -25,7 +25,7 @@ That means the downloader does not keep a separate database or cache. Each row i
 - `exportify_downloader/scripts/reconcile.py`: packaged repair utility that scans audio files already on disk and writes matching `output_file` values back into the CSV
 - `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only maintenance utility for existing local files
 - `downloader.config.json`: default settings for the Python launcher
-- `docs/README.md`: user-facing overview and basic usage
+- `README.md`: user-facing overview and basic usage
 - `docs/MAINTENANCE.md`: operational recipes and recovery steps
 - `docs/METADATA_TAGGING.md`: metadata-writing behavior and troubleshooting
 
