@@ -39,6 +39,8 @@ STATUS_DOWNLOADED = "downloaded"
 STATUS_UNRESOLVED = "unresolved"
 STATUS_ERROR = "error"
 
+SKIP_TRACKING_COLUMNS = [col for col in TRACKING_COLUMNS if col != "attempted_at"]
+
 
 
 
@@ -166,10 +168,19 @@ def has_saved_resolution(row: Dict[str, str]) -> bool:
 
 
 def has_tracking_data(row: Dict[str, str]) -> bool:
-    for col in TRACKING_COLUMNS:
+    for col in SKIP_TRACKING_COLUMNS:
         if (row.get(col) or "").strip():
             return True
     return False
+
+
+def tracking_data_details(row: Dict[str, str]) -> List[str]:
+    details: List[str] = []
+    for col in SKIP_TRACKING_COLUMNS:
+        value = (row.get(col) or "").strip()
+        if value:
+            details.append(f"{col}={value}")
+    return details
 
 
 def reset_result_columns(row: Dict[str, str]) -> None:
@@ -268,12 +279,13 @@ def main() -> int:
 
         status = (row.get("download_status") or "").strip().lower()
         saved_resolution = has_saved_resolution(row)
+        tracking_details = tracking_data_details(row)
 
         if not args.force_redownload and status == STATUS_RESOLVED and saved_resolution and args.download_enabled:
             pass
-        elif not args.force_redownload and has_tracking_data(row):
+        elif not args.force_redownload and tracking_details:
             skipped += 1
-            log(f"[{idx}] skip: tracking columns already populated")
+            log(f"[{idx}] skip: tracking columns already populated ({'; '.join(tracking_details)})")
             continue
 
         if should_skip_row(row, args.force_redownload):

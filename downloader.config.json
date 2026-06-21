@@ -3,7 +3,7 @@
   "CsvFolder": ".\\exportify.app",
   "DurationTolerance": 10,
   "SearchResults": 6,
-  "DownloadEnabled": false,
+  "DownloadEnabled": true,
   "ForceRedownload": false,
   "Limit": 0,
   "SleepRequests": 1.1,
