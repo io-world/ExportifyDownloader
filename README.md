@@ -12,6 +12,7 @@ Get the playlist CSV from https://exportify.app/ and place the exported file in 
 - Uses SpotDL-style weighted matching (duration proximity + title/artist overlap scoring instead of hard rejects).
 - Extracts audio and requests MP3 at 320 kbps during download.
 - Embeds metadata into output files from CSV fields (title, artist, album, date, ISRC, row ID, row key, Spotify track ID).
+- Uses yt-dlp YouTube thumbnails for cover artwork and embeds the image into downloaded files.
 - Can reuse saved `resolved` rows and download them later without repeating YouTube Music search.
 - By default, rows with tracking data are skipped unless a mode explicitly continues from `resolved` or force-redownload is used.
 - Streams live row-by-row console logs so you can see what track is being checked, downloaded, skipped, or failing.
@@ -110,9 +111,11 @@ Default config currently ships with:
 ## Metadata Behavior
 
 - Title, artist, album, track, and other tags are written back to audio files using ffmpeg.
+- Cover artwork is embedded from yt-dlp/YouTube thumbnail files (best-effort).
 - Metadata `track` is set to the persistent work CSV `id` when available.
 - Additional tags include `row_id`, `row_key`, `spotify_track_id`, and combined `comment`.
 - For Windows compatibility, tags are written at both container and stream metadata levels.
+- `reconcile_metadata.py` can backfill artwork for existing files using local sidecar thumbnails or by refetching from each row's `youtube_url`.
 
 ## Project Files
 

@@ -2,6 +2,17 @@
 
 This project writes metadata from CSV rows into downloaded audio files using ffmpeg. The same metadata-writing path is also used by `reconcile_metadata.py` to refresh tags for local files without downloading anything.
 
+## Cover Artwork
+
+Artwork is sourced from YouTube/yt-dlp thumbnail data.
+
+- During normal download, yt-dlp writes a thumbnail sidecar file next to the audio output.
+- The downloader then embeds that image into the audio file with ffmpeg.
+- During `reconcile_metadata.py`, the script first looks for an existing sidecar thumbnail.
+- If missing and `youtube_url` exists in the CSV row, it fetches the thumbnail from YouTube and embeds it.
+
+Artwork embedding is best-effort and non-blocking: if image embedding fails, text metadata is still written.
+
 ## Source Fields
 
 Metadata is derived from these CSV columns:
@@ -65,4 +76,10 @@ Use ffprobe to confirm written tags:
 
 ```powershell
 ffprobe -v error -show_entries format_tags=title,artist,album,track,row_id,row_key,spotify_track_id,comment -of default=noprint_wrappers=1:nokey=0 ".\exportify.app\3_dnb_dance_floor\<file>.m4a"
+```
+
+Use ffprobe to confirm attached cover art streams:
+
+```powershell
+ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,disposition:stream_tags=title,comment -of default=noprint_wrappers=1:nokey=0 ".\exportify.app\3_dnb_dance_floor\<file>.mp3"
 ```

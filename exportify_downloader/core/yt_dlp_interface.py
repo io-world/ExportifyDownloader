@@ -12,6 +12,9 @@ from yt_dlp.utils import DownloadError
 
 from .utils import parse_rate_limit
 
+AUDIO_EXTENSIONS = {".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".opus"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
 
 def build_ydl_options(
     cookies_from_browser: str = "",
@@ -132,6 +135,7 @@ def download_audio(
         {
             "format": "bestaudio/best",
             "noplaylist": True,
+            "writethumbnail": True,
             "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
             "paths": {"home": str(output_path.parent)},
             "outtmpl": {"default": output_path.name},
@@ -140,7 +144,11 @@ def download_audio(
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "320",
-                }
+                },
+                {
+                    "key": "FFmpegThumbnailsConvertor",
+                    "format": "jpg",
+                },
             ],
         }
     )
@@ -161,6 +169,74 @@ def download_audio(
     return None
 
 
+def download_thumbnail(
+    url: str,
+    output_template: str,
+    cookies_from_browser: str = "",
+    cookies_file: Optional[Path] = None,
+    sleep_requests: float = 0.0,
+    limit_rate: str = "",
+    throttled_rate: str = "",
+    sleep_interval: float = 0.0,
+    max_sleep_interval: float = 0.0,
+) -> Optional[Path]:
+    output_path = Path(output_template)
+    options = build_ydl_options(
+        cookies_from_browser,
+        cookies_file,
+        sleep_requests,
+        limit_rate,
+        throttled_rate,
+        sleep_interval,
+        max_sleep_interval,
+    )
+    options.update(
+        {
+            "noplaylist": True,
+            "skip_download": True,
+            "writethumbnail": True,
+            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+            "paths": {"home": str(output_path.parent)},
+            "outtmpl": {"default": output_path.name},
+            "postprocessors": [
+                {
+                    "key": "FFmpegThumbnailsConvertor",
+                    "format": "jpg",
+                }
+            ],
+        }
+    )
+
+    try:
+        with YoutubeDL(options) as ydl:
+            ydl.extract_info(url, download=True)
+    except DownloadError as exc:
+        raise RuntimeError(str(exc).strip() or "yt-dlp thumbnail download failed") from exc
+
+    return resolve_thumbnail_file(output_path.parent, output_path.stem)
+
+
 def resolve_downloaded_file(output_dir: Path, base_name: str) -> Optional[Path]:
-    files = sorted(output_dir.glob(f"{base_name}.*"), key=lambda p: p.stat().st_mtime, reverse=True)
+    files = sorted(
+        [
+            path
+            for path in output_dir.glob(f"{base_name}.*")
+            if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+        ],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return files[0] if files else None
+
+
+def resolve_thumbnail_file(output_dir: Path, base_name: str) -> Optional[Path]:
+    files = sorted(
+        [
+            path
+            for path in output_dir.glob(f"{base_name}.*")
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        ],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     return files[0] if files else None

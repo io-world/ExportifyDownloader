@@ -29,8 +29,14 @@ from .utils import (
     stable_base_name,
     utc_now,
 )
-from .metadata import build_audio_metadata, embed_audio_metadata
-from .yt_dlp_interface import download_audio, resolve_downloaded_file, run_yt_dlp_json
+from .metadata import build_audio_metadata, embed_audio_metadata, embed_cover_art
+from .yt_dlp_interface import (
+    download_audio,
+    download_thumbnail,
+    resolve_downloaded_file,
+    resolve_thumbnail_file,
+    run_yt_dlp_json,
+)
 
 REQUIRED_COLUMNS = ["Track Name", "Artist Name(s)", "Track Duration (ms)"]
 
@@ -416,6 +422,27 @@ def main() -> int:
                 saved_file = resolve_downloaded_file(output_dir, base_name)
             if saved_file is not None:
                 embed_audio_metadata(saved_file, build_audio_metadata(row, metadata_row_id(row, idx)))
+                cover_image = resolve_thumbnail_file(saved_file.parent, saved_file.stem)
+                if cover_image is None:
+                    try:
+                        cover_image = download_thumbnail(
+                            url,
+                            str(saved_file.with_suffix(".%(ext)s")),
+                            args.cookies_from_browser.strip(),
+                            cookies_file,
+                            args.sleep_requests,
+                            args.limit_rate.strip(),
+                            args.throttled_rate.strip(),
+                            args.sleep_interval,
+                            args.max_sleep_interval,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        log(f"[{idx}] warning: artwork download failed :: {shorten_error_message(str(exc))}")
+                if cover_image is not None:
+                    try:
+                        embed_cover_art(saved_file, cover_image)
+                    except Exception as exc:  # noqa: BLE001
+                        log(f"[{idx}] warning: artwork embed failed :: {shorten_error_message(str(exc))}")
 
             row["download_status"] = STATUS_DOWNLOADED
             row["output_file"] = str(saved_file.resolve()) if saved_file else ""

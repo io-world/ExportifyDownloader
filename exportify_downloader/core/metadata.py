@@ -106,3 +106,49 @@ def embed_audio_metadata(file_path: Path, metadata: Dict[str, str]) -> None:
         raise RuntimeError(stderr or "ffmpeg metadata embedding failed")
 
     tagged_file.replace(file_path)
+
+
+def embed_cover_art(file_path: Path, cover_image_path: Path) -> None:
+    if not cover_image_path.exists():
+        raise RuntimeError(f"Cover image not found: {cover_image_path}")
+
+    tagged_file = file_path.with_name(f"{file_path.stem}.covertmp{file_path.suffix}")
+    suffix = file_path.suffix.lower()
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(file_path),
+        "-i",
+        str(cover_image_path),
+        "-map_metadata",
+        "0",
+        "-map",
+        "0:a:0",
+        "-map",
+        "1:v:0",
+        "-c:a",
+        "copy",
+        "-c:v",
+        "mjpeg",
+        "-metadata:s:v:0",
+        "title=Cover",
+        "-metadata:s:v:0",
+        "comment=Cover (front)",
+        "-disposition:v:0",
+        "attached_pic",
+    ]
+
+    if suffix == ".mp3":
+        cmd.extend(["-id3v2_version", "3", "-write_id3v1", "1"])
+    elif suffix in {".m4a", ".mp4"}:
+        cmd.extend(["-movflags", "+use_metadata_tags"])
+
+    cmd.append(str(tagged_file))
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        stderr = (proc.stderr or "").strip()
+        raise RuntimeError(stderr or "ffmpeg cover art embedding failed")
+
+    tagged_file.replace(file_path)

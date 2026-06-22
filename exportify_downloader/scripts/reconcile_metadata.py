@@ -11,8 +11,9 @@ from typing import Optional
 
 from ..core.csv_work_state import write_csv
 from ..core.downloader import STATUS_DOWNLOADED
-from ..core.metadata import build_audio_metadata, embed_audio_metadata
-from ..core.utils import utc_now
+from ..core.metadata import build_audio_metadata, embed_audio_metadata, embed_cover_art
+from ..core.utils import shorten_error_message, utc_now
+from ..core.yt_dlp_interface import download_thumbnail, resolve_thumbnail_file
 from .reconcile import (
     candidate_stems,
     collect_audio_files,
@@ -92,6 +93,10 @@ def main() -> int:
     retagged = 0
     updated_rows = 0
     errors = 0
+    artwork_warnings = 0
+    artwork_embedded = 0
+    artwork_missing_source = 0
+    artwork_missing_thumbnail = 0
 
     for idx, row in enumerate(rows, start=1):
         if args.downloaded_only and (row.get("download_status") or "").strip().lower() != STATUS_DOWNLOADED:
@@ -109,6 +114,34 @@ def main() -> int:
         matched += 1
         try:
             embed_audio_metadata(match, build_audio_metadata(row, metadata_row_id(row, idx)))
+            cover_image = resolve_thumbnail_file(match.parent, match.stem)
+            if cover_image is None:
+                youtube_url = (row.get("youtube_url") or "").strip()
+                if youtube_url:
+                    try:
+                        cover_image = download_thumbnail(youtube_url, str(match.with_suffix(".%(ext)s")))
+                    except Exception as exc:  # noqa: BLE001
+                        artwork_warnings += 1
+                        print(
+                            f"[{idx}] warning: artwork download failed :: "
+                            f"{shorten_error_message(str(exc))}",
+                            flush=True,
+                        )
+                else:
+                    artwork_missing_source += 1
+            if cover_image is None and (row.get("youtube_url") or "").strip():
+                artwork_missing_thumbnail += 1
+            if cover_image is not None:
+                try:
+                    embed_cover_art(match, cover_image)
+                    artwork_embedded += 1
+                except Exception as exc:  # noqa: BLE001
+                    artwork_warnings += 1
+                    print(
+                        f"[{idx}] warning: artwork embed failed :: "
+                        f"{shorten_error_message(str(exc))}",
+                        flush=True,
+                    )
             retagged += 1
 
             resolved_match = str(match)
@@ -128,7 +161,11 @@ def main() -> int:
     write_csv(csv_path, fieldnames, rows)
     print(
         f"scanned_files={len(files_by_stem)} matched_rows={matched} "
-        f"retagged_rows={retagged} updated_rows={updated_rows} errors={errors}"
+        f"retagged_rows={retagged} updated_rows={updated_rows} "
+        f"artwork_embedded={artwork_embedded} "
+        f"artwork_missing_source={artwork_missing_source} "
+        f"artwork_missing_thumbnail={artwork_missing_thumbnail} "
+        f"artwork_warnings={artwork_warnings} errors={errors}"
     )
     return 1 if errors > 0 else 0
 
