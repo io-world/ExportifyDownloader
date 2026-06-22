@@ -51,6 +51,7 @@ Status values:
 - downloaded: File exists and row is complete.
 - unresolved: No safe candidate match found within tolerance.
 - error: Search, download, or metadata write failed.
+- retry: The row hit a transient YouTube rate limit and should be retried on a later rerun.
 - skipped: Runtime-only counter for already-complete rows.
 
 `row_key` is an explicit identity key per row:
@@ -132,7 +133,8 @@ Default config currently ships with:
 
 - If YouTube returns HTTP 403, run with `--cookies-from-browser edge` (or your browser).
 - If you see rate-limit behavior, increase `--sleep-requests` (for example 1.5 to 3.0).
-- If you see repeated `try again later` or rate-limit errors across several rows, stop the run and retry later or with a higher sleep delay.
+- If you see repeated `try again later` or session rate-limit errors, the downloader now marks the row with `download_status=retry`, then stops early so the rest of the run is not flooded with the same transient error.
+- Rerun later and those `retry` rows will be attempted again automatically without clearing CSV fields.
 - If some titles appear blank in Windows Explorer, retag files and refresh Explorer metadata cache.
 - If a row is `downloaded` but `output_file` is blank, reconcile the path then retag.
 

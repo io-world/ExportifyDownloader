@@ -51,6 +51,20 @@ def parse_rate_limit(value: str, option_name: str) -> Optional[int]:
     return int(parsed)
 
 
+def classify_download_error(message: str) -> str:
+    lowered = message.lower()
+    patterns = (
+        "rate-limited by youtube",
+        "the current session has been rate-limited",
+        "try again later",
+        "too many requests",
+        "http error 429",
+        "status code 429",
+        "retry after",
+    )
+    return "rate_limit" if any(pattern in lowered for pattern in patterns) else ""
+
+
 def clean_meta_value(value: str) -> str:
     return value.replace("\x00", "").strip()
 

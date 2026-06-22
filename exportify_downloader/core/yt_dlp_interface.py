@@ -10,10 +10,14 @@ from urllib.parse import quote_plus
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
-from .utils import parse_rate_limit
+from .utils import classify_download_error, parse_rate_limit
 
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".opus"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+class RateLimitError(RuntimeError):
+    pass
 
 
 def build_ydl_options(
@@ -85,7 +89,10 @@ def run_yt_dlp_json(
         with YoutubeDL(options) as ydl:
             payload = ydl.extract_info(search_url, download=False)
     except DownloadError as exc:
-        raise RuntimeError(str(exc).strip() or "yt-dlp search failed") from exc
+        message = str(exc).strip() or "yt-dlp search failed"
+        if classify_download_error(message) == "rate_limit":
+            raise RateLimitError(message) from exc
+        raise RuntimeError(message) from exc
 
     entries = payload.get("entries") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
@@ -158,7 +165,10 @@ def download_audio(
             info = ydl.extract_info(url, download=True)
             final_path = Path(ydl.prepare_filename(info))
     except DownloadError as exc:
-        raise RuntimeError(str(exc).strip() or "yt-dlp download failed") from exc
+        message = str(exc).strip() or "yt-dlp download failed"
+        if classify_download_error(message) == "rate_limit":
+            raise RateLimitError(message) from exc
+        raise RuntimeError(message) from exc
 
     if final_path.suffix.lower() != ".mp3":
         mp3_path = final_path.with_suffix(".mp3")
@@ -211,7 +221,10 @@ def download_thumbnail(
         with YoutubeDL(options) as ydl:
             ydl.extract_info(url, download=True)
     except DownloadError as exc:
-        raise RuntimeError(str(exc).strip() or "yt-dlp thumbnail download failed") from exc
+        message = str(exc).strip() or "yt-dlp thumbnail download failed"
+        if classify_download_error(message) == "rate_limit":
+            raise RateLimitError(message) from exc
+        raise RuntimeError(message) from exc
 
     return resolve_thumbnail_file(output_path.parent, output_path.stem)
 

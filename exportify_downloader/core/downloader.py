@@ -23,6 +23,7 @@ from .csv_work_state import (
     write_csv,
 )
 from .utils import (
+    classify_download_error,
     first_artist,
     log,
     shorten_error_message,
@@ -31,6 +32,7 @@ from .utils import (
 )
 from .metadata import build_audio_metadata, embed_audio_metadata, embed_cover_art
 from .yt_dlp_interface import (
+    RateLimitError,
     download_audio,
     download_thumbnail,
     resolve_downloaded_file,
@@ -44,8 +46,7 @@ STATUS_RESOLVED = "resolved"
 STATUS_DOWNLOADED = "downloaded"
 STATUS_UNRESOLVED = "unresolved"
 STATUS_ERROR = "error"
-
-SKIP_TRACKING_COLUMNS = [col for col in TRACKING_COLUMNS if col != "attempted_at"]
+STATUS_RETRY = "retry"
 
 
 
@@ -173,22 +174,6 @@ def has_saved_resolution(row: Dict[str, str]) -> bool:
     return bool((row.get("youtube_url") or "").strip())
 
 
-def has_tracking_data(row: Dict[str, str]) -> bool:
-    for col in SKIP_TRACKING_COLUMNS:
-        if (row.get(col) or "").strip():
-            return True
-    return False
-
-
-def tracking_data_details(row: Dict[str, str]) -> List[str]:
-    details: List[str] = []
-    for col in SKIP_TRACKING_COLUMNS:
-        value = (row.get(col) or "").strip()
-        if value:
-            details.append(f"{col}={value}")
-    return details
-
-
 def reset_result_columns(row: Dict[str, str]) -> None:
     for col in TRACKING_COLUMNS:
         if col not in row:
@@ -273,6 +258,8 @@ def main() -> int:
     skipped = 0
     unresolved = 0
     failed = 0
+    rate_limited = 0
+    stopped_for_rate_limit = False
     row_order = get_row_processing_order(rows, args.id_order)
     log(f"Processing order: id {args.id_order}")
     log(f"Download enabled: {args.download_enabled}")
@@ -285,13 +272,20 @@ def main() -> int:
 
         status = (row.get("download_status") or "").strip().lower()
         saved_resolution = has_saved_resolution(row)
-        tracking_details = tracking_data_details(row)
+        error_message = (row.get("error_message") or "").strip()
 
-        if not args.force_redownload and status == STATUS_RESOLVED and saved_resolution and args.download_enabled:
+        if status == STATUS_RETRY and not error_message:
+            row["download_status"] = ""
+            status = ""
+            write_csv(csv_path, fieldnames, rows)
+
+        if not args.force_redownload and status == STATUS_RETRY:
+            log(f"[{idx}] retrying: prior rate-limit row")
+        elif not args.force_redownload and status == STATUS_RESOLVED and saved_resolution and args.download_enabled:
             pass
-        elif not args.force_redownload and tracking_details:
+        elif not args.force_redownload and error_message:
             skipped += 1
-            log(f"[{idx}] skip: tracking columns already populated ({'; '.join(tracking_details)})")
+            log(f"[{idx}] skip: error_message already populated ({shorten_error_message(error_message)})")
             continue
 
         if should_skip_row(row, args.force_redownload):
@@ -331,14 +325,17 @@ def main() -> int:
         query = f"{artist} {track}"
 
         try:
-            if saved_resolution and status == STATUS_RESOLVED and not args.force_redownload:
+            if saved_resolution and status in {STATUS_RESOLVED, STATUS_RETRY} and not args.force_redownload:
                 url = str(row.get("youtube_url") or "").strip()
                 title = str(row.get("selected_title") or "").strip()
                 selected_duration_raw = (row.get("selected_duration_s") or "").strip()
                 candidate_duration = int(selected_duration_raw) if selected_duration_raw.isdigit() else None
                 delta_raw = (row.get("duration_delta_s") or "").strip()
                 delta = int(delta_raw) if delta_raw.isdigit() else 0
-                log(f"[{idx}] using saved resolution: {artist} - {track} <- {title or url}")
+                if status == STATUS_RETRY:
+                    log(f"[{idx}] retrying saved resolution: {artist} - {track} <- {title or url}")
+                else:
+                    log(f"[{idx}] using saved resolution: {artist} - {track} <- {title or url}")
             else:
                 log(f"[{idx}] checking: {artist} - {track}")
                 candidates = run_yt_dlp_json(
@@ -454,6 +451,18 @@ def main() -> int:
             processed += 1
             log(f"[{idx}] downloaded: {artist} - {track}")
 
+        except RateLimitError as exc:
+            row["download_status"] = STATUS_RETRY
+            row["attempted_at"] = utc_now()
+            row["error_message"] = str(exc).strip()[:400]
+            write_csv(csv_path, fieldnames, rows)
+            failed += 1
+            rate_limited += 1
+            processed += 1
+            stopped_for_rate_limit = True
+            log(f"[{idx}] rate-limited: marked for retry :: {shorten_error_message(str(exc))}")
+            log("Stopping run early because the current YouTube session is rate-limited.")
+            break
         except Exception as exc:  # noqa: BLE001
             row["download_status"] = STATUS_ERROR
             row["attempted_at"] = utc_now()
@@ -469,6 +478,9 @@ def main() -> int:
     log(f"  skipped:    {skipped}")
     log(f"  unresolved: {unresolved}")
     log(f"  errors:     {failed}")
+    log(f"  rate-limit: {rate_limited}")
+    if stopped_for_rate_limit:
+        log("  stopped:    session rate-limited; rerun later to retry")
     log(f"  csv:        {csv_path}")
     log(f"  out dir:    {output_dir}")
     return 0

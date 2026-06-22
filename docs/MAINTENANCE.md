@@ -48,6 +48,8 @@ Retry unresolved and error rows with cookies:
 python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --cookies-from-browser edge
 ```
 
+Rows marked with `download_status=retry` do not need manual CSV cleanup. Rerun later and the downloader will automatically attempt those rows again.
+
 Force retry of all downloaded rows:
 
 ```bash
