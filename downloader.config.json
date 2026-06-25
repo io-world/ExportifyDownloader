@@ -1,9 +1,9 @@
 {
-  "CsvPath": "",
+  "CsvPath": ".\\exportify.app\\2_house_uk_garage.csv",
   "CsvFolder": ".\\exportify.app",
   "DurationTolerance": 10,
   "SearchResults": 6,
-  "DownloadEnabled": true,
+  "DownloadEnabled": false,
   "ForceRedownload": false,
   "Limit": 0,
   "SleepRequests": 1.1,
@@ -11,7 +11,7 @@
   "ThrottledRate": "50K",
   "SleepInterval": 10,
   "MaxSleepInterval": 35,
-  "IdOrder": "descending",
+  "IdOrder": "ascending",
   "CookiesFromBrowser": "",
   "CookiesFile": ".\\music youtube cookies.txt"
 }

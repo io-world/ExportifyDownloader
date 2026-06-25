@@ -47,12 +47,12 @@ On first run, these columns are appended to the work CSV if missing:
 
 Status values:
 
-- resolved: A YouTube Music match was chosen and saved in the work CSV, but download is disabled or not yet run.
-- downloaded: File exists and row is complete.
-- unresolved: No safe candidate match found within tolerance.
-- error: Search, download, or metadata write failed.
-- retry: The row hit a transient YouTube rate limit and should be retried on a later rerun.
-- skipped: Runtime-only counter for already-complete rows.
+- **resolved**: A YouTube Music match was chosen and saved in the work CSV, but download is disabled or not yet run.
+- **downloaded**: File successfully downloaded and exists on disk. Row is complete. Skipped on subsequent runs (unless `--force-redownload` is used).
+- **unresolved**: No safe candidate match found within duration tolerance. Row is skipped and not retried unless explicitly re-running.
+- **error**: Search, download, or metadata write failed. Row is skipped and marked for potential manual review.
+- **retry**: The row hit a transient YouTube rate limit (e.g., HTTP 429). Should be retried on a later rerun to allow the rate limit to clear.
+- **skipped**: Runtime-only counter for rows already marked as downloaded or complete (not stored in CSV).
 
 `row_key` is an explicit identity key per row:
 

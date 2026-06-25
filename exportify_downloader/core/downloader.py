@@ -274,19 +274,25 @@ def main() -> int:
         saved_resolution = has_saved_resolution(row)
         error_message = (row.get("error_message") or "").strip()
 
+        if error_message and status == STATUS_ERROR and classify_download_error(error_message) == "rate_limit":
+            row["download_status"] = STATUS_RETRY
+            status = STATUS_RETRY
+            write_csv(csv_path, fieldnames, rows)
+
         if status == STATUS_RETRY and not error_message:
             row["download_status"] = ""
             status = ""
             write_csv(csv_path, fieldnames, rows)
 
+        if status == STATUS_ERROR and not args.force_redownload:
+            skipped += 1
+            log(f"[{idx}] skip: previous permanent error ({shorten_error_message(error_message)})")
+            continue
+
         if not args.force_redownload and status == STATUS_RETRY:
             log(f"[{idx}] retrying: prior rate-limit row")
         elif not args.force_redownload and status == STATUS_RESOLVED and saved_resolution and args.download_enabled:
             pass
-        elif not args.force_redownload and error_message:
-            skipped += 1
-            log(f"[{idx}] skip: error_message already populated ({shorten_error_message(error_message)})")
-            continue
 
         if should_skip_row(row, args.force_redownload):
             output_file = (row.get("output_file") or "").strip()
