@@ -1,5 +1,5 @@
 {
-  "CsvPath": ".\\exportify.app\\2_house_uk_garage.csv",
+  "CsvPath": "",
   "CsvFolder": ".\\exportify.app",
   "DurationTolerance": 10,
   "SearchResults": 6,

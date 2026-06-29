@@ -297,8 +297,9 @@ def main() -> int:
         if should_skip_row(row, args.force_redownload):
             output_file = (row.get("output_file") or "").strip()
             if output_file:
+                output_path = Path(output_file)
                 try:
-                    embed_audio_metadata(Path(output_file), build_audio_metadata(row, metadata_row_id(row, idx)))
+                    embed_audio_metadata(output_path, build_audio_metadata(row, metadata_row_id(row, idx)))
                 except Exception as exc:  # noqa: BLE001
                     row["download_status"] = STATUS_ERROR
                     row["attempted_at"] = utc_now()
@@ -308,6 +309,15 @@ def main() -> int:
                     processed += 1
                     log(f"[{idx}] error: metadata update failed :: {shorten_error_message(str(exc))}")
                     continue
+                cover_image = resolve_thumbnail_file(output_path.parent, output_path.stem)
+                if cover_image is not None:
+                    try:
+                        embed_cover_art(output_path, cover_image)
+                        row["artwork_status"] = "embedded"
+                        write_csv(csv_path, fieldnames, rows)
+                        log(f"[{idx}] artwork embedded: {cover_image.name}")
+                    except Exception as exc:  # noqa: BLE001
+                        log(f"[{idx}] warning: artwork embed failed :: {shorten_error_message(str(exc))}")
             skipped += 1
             log(f"[{idx}] skip: already downloaded")
             continue
@@ -444,6 +454,7 @@ def main() -> int:
                 if cover_image is not None:
                     try:
                         embed_cover_art(saved_file, cover_image)
+                        row["artwork_status"] = "embedded"
                     except Exception as exc:  # noqa: BLE001
                         log(f"[{idx}] warning: artwork embed failed :: {shorten_error_message(str(exc))}")
 

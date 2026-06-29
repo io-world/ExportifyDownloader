@@ -12,7 +12,8 @@ Get the playlist CSV from https://exportify.app/ and place the exported file in 
 - Uses SpotDL-style weighted matching (duration proximity + title/artist overlap scoring instead of hard rejects).
 - Extracts audio and requests MP3 at 320 kbps during download.
 - Embeds metadata into output files from CSV fields (title, artist, album, date, ISRC, row ID, row key, Spotify track ID).
-- Uses yt-dlp YouTube thumbnails for cover artwork and embeds the image into downloaded files.
+- Automatically embeds cover artwork from sidecar image files (`.jpg`, `.png`, `.webp`) whenever a matching image exists alongside the audio file — both on first download and on subsequent reruns of already-downloaded tracks.
+- Records `artwork_status = embedded` in the work CSV when artwork is successfully embedded.
 - Can reuse saved `resolved` rows and download them later without repeating YouTube Music search.
 - By default, rows with tracking data are skipped unless a mode explicitly continues from `resolved` or force-redownload is used.
 - Streams live row-by-row console logs so you can see what track is being checked, downloaded, skipped, or failing.
@@ -37,6 +38,7 @@ On first run, these columns are appended to the work CSV if missing:
 - id
 - row_key
 - download_status
+- artwork_status
 - youtube_url
 - selected_title
 - selected_duration_s
@@ -45,7 +47,7 @@ On first run, these columns are appended to the work CSV if missing:
 - attempted_at
 - error_message
 
-Status values:
+`download_status` values:
 
 - **resolved**: A YouTube Music match was chosen and saved in the work CSV, but download is disabled or not yet run.
 - **downloaded**: File successfully downloaded and exists on disk. Row is complete. Skipped on subsequent runs (unless `--force-redownload` is used).
@@ -53,6 +55,11 @@ Status values:
 - **error**: Search, download, or metadata write failed. Row is skipped and marked for potential manual review.
 - **retry**: The row hit a transient YouTube rate limit (e.g., HTTP 429). Should be retried on a later rerun to allow the rate limit to clear.
 - **skipped**: Runtime-only counter for rows already marked as downloaded or complete (not stored in CSV).
+
+`artwork_status` values:
+
+- **embedded**: A sidecar image file was found alongside the audio file and successfully embedded as the APIC cover art tag.
+- *(empty)*: No matching image file was found, or artwork embedding has not yet been attempted for this row.
 
 `row_key` is an explicit identity key per row:
 
@@ -112,7 +119,8 @@ Default config currently ships with:
 ## Metadata Behavior
 
 - Title, artist, album, track, and other tags are written back to audio files using ffmpeg.
-- Cover artwork is embedded from yt-dlp/YouTube thumbnail files (best-effort).
+- Cover artwork is embedded from sidecar image files (`.jpg`, `.png`, `.webp`) that sit alongside the audio file. During a fresh download yt-dlp writes and converts the YouTube thumbnail automatically; on reruns of already-downloaded tracks the downloader checks for an existing sidecar and embeds it without hitting YouTube again. Embedding is best-effort and non-blocking.
+- `artwork_status` in the work CSV is set to `embedded` when artwork is successfully applied.
 - Metadata `track` is set to the persistent work CSV `id` when available.
 - Additional tags include `row_id`, `row_key`, `spotify_track_id`, and combined `comment`.
 - For Windows compatibility, tags are written at both container and stream metadata levels.

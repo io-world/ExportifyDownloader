@@ -78,6 +78,7 @@ State is stored directly in the CSV through these columns:
 - `id`
 - `row_key`
 - `download_status`
+- `artwork_status`
 - `youtube_url`
 - `selected_title`
 - `selected_duration_s`
@@ -86,13 +87,18 @@ State is stored directly in the CSV through these columns:
 - `attempted_at`
 - `error_message`
 
-Current status values used by the Python script:
+`download_status` values used by the Python script:
 
 - `resolved`
 - `downloaded`
 - `unresolved`
 - `error`
 - `skipped` is mainly a runtime outcome rather than a persisted path in the current flow
+
+`artwork_status` values:
+
+- `embedded`: a sidecar image file was found and successfully embedded as the APIC cover art tag
+- *(empty)*: no matching sidecar image was found, or artwork has not yet been processed for this row
 
 Important behavior:
 
@@ -123,7 +129,11 @@ For each CSV row, the downloader roughly does this:
 9. If downloads are enabled, download the chosen candidate as audio with yt-dlp rate limiting applied.
 10. Resolve the actual saved output file from the target folder.
 11. Write metadata tags with `ffmpeg`.
-12. Write the final `downloaded` result back into the CSV.
+12. Look for a sidecar image file (`.jpg`, `.png`, `.webp`) alongside the audio file and embed it as APIC cover art. If no sidecar exists, attempt to download the thumbnail from YouTube as a fallback.
+13. Set `artwork_status = embedded` in the row when artwork is successfully applied.
+14. Write the final `downloaded` result back into the CSV.
+
+For already-downloaded (skipped) rows, the same artwork lookup and embed step runs on every subsequent pass, using only local sidecar files (no YouTube request). `artwork_status` is written and the CSV is saved immediately after a successful embed.
 
 If any step fails, the row is marked `error` with a shortened `error_message`.
 

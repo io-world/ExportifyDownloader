@@ -14,6 +14,7 @@ ID_COLUMN = "id"
 ROW_KEY_COLUMN = "row_key"
 TRACKING_COLUMNS = [
     "download_status",
+    "artwork_status",
     "youtube_url",
     "selected_title",
     "selected_duration_s",
