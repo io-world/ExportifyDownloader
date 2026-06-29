@@ -18,12 +18,13 @@ That means the downloader does not keep a separate database or cache. Each row i
 ## Main Files
 
 - `main.py`: thin root wrapper that calls the packaged launcher
-- `reconcile_csv_files.py`: thin root wrapper for the packaged reconcile utility
-- `reconcile_metadata.py`: thin root wrapper for metadata-only reconcile
+- `tools/reconcile_csv_files.py`: wrapper for the packaged reconcile utility
+- `tools/reconcile_metadata.py`: wrapper for metadata-only reconcile
 - `exportify_downloader/launcher/main.py`: packaged launcher that loads config, resolves cookies, and runs one or more CSV files
 - `exportify_downloader/core/downloader.py`: packaged core downloader, matcher coordinator, metadata writer, and CSV state updater
 - `exportify_downloader/scripts/reconcile.py`: packaged repair utility that scans audio files already on disk and writes matching `output_file` values back into the CSV
 - `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only maintenance utility for existing local files
+- `tools/`: one-off and maintenance utility scripts (`check_tags.py`, `embed_artwork.py`, `reconcile_csv_files.py`, `reconcile_metadata.py`)
 - `downloader.config.json`: default settings for the Python launcher
 - `README.md`: user-facing overview and basic usage
 - `docs/MAINTENANCE.md`: operational recipes and recovery steps
@@ -331,7 +332,7 @@ Good validation commands:
 ```bash
 python -m py_compile main.py reconcile_csv_files.py exportify_downloader/launcher/main.py exportify_downloader/core/downloader.py exportify_downloader/scripts/reconcile.py
 python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --limit 1
-python reconcile_csv_files.py
+python tools/reconcile_csv_files.py
 ```
 
 ## Extension Ideas

@@ -61,13 +61,13 @@ python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --force-redownlo
 If audio files exist and you only want metadata updates:
 
 ```bash
-python reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv
+python tools/reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv
 ```
 
 Only retag rows already marked downloaded:
 
 ```bash
-python reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv --downloaded-only
+python tools/reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv --downloaded-only
 ```
 
 ## 4) Reconcile Downloaded Rows With Empty output_file
@@ -79,16 +79,16 @@ Note: with the source/work CSV model, reconcile updates the `_work.csv`. If you 
 Run the reconcile utility directly:
 
 ```powershell
-.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv
-.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor_work.csv
-.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --files-dir .\exportify.app\3_dnb_dance_floor
-.\.venv\Scripts\python.exe .\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --clear-missing
+.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv
+.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor_work.csv
+.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --files-dir .\exportify.app\3_dnb_dance_floor
+.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --clear-missing
 ```
 
 If there is only one CSV in `exportify.app`, the script can also be run without arguments:
 
 ```powershell
-.\.venv\Scripts\python.exe .\reconcile_csv_files.py
+.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py
 ```
 
 Practical rule:
@@ -100,7 +100,7 @@ Practical rule:
 Python syntax check:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile .\main.py .\reconcile_csv_files.py .\reconcile_metadata.py .\exportify_downloader\launcher\main.py .\exportify_downloader\core\downloader.py .\exportify_downloader\scripts\reconcile.py .\exportify_downloader\scripts\reconcile_metadata.py
+.\.venv\Scripts\python.exe -m py_compile .\main.py .\tools\reconcile_csv_files.py .\exportify_downloader\launcher\main.py .\exportify_downloader\core\downloader.py .\exportify_downloader\scripts\reconcile.py .\exportify_downloader\scripts\reconcile_metadata.py
 ```
 
 Inspect tag values:

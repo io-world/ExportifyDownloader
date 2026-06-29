@@ -129,8 +129,10 @@ Default config currently ships with:
 ## Project Files
 
 - `main.py`: Root launcher wrapper for normal folder/CSV runs.
-- `reconcile_csv_files.py`: Root wrapper for the reconcile utility.
-- `reconcile_metadata.py`: Root wrapper for metadata-only reconcile.
+- `tools/reconcile_csv_files.py`: Wrapper for the reconcile utility.
+- `tools/reconcile_metadata.py`: Wrapper for metadata-only reconcile.
+- `tools/check_tags.py`: One-off utility to inspect ID3 tags on a single file.
+- `tools/embed_artwork.py`: One-off utility to bulk-embed sidecar artwork into a folder of MP3s.
 - `exportify_downloader/launcher/`: Packaged launcher config, runner, and main orchestration.
 - `exportify_downloader/core/`: Packaged downloader, matcher, CSV state, metadata, yt-dlp, and utility logic.
 - `exportify_downloader/scripts/`: Packaged maintenance script implementations.
