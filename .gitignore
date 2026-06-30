@@ -1,3 +1,4 @@
 music youtube cookies.txt
 __pycache__/
 *.py[cod]
+run_logs/*
