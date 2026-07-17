@@ -6,12 +6,11 @@ This project writes metadata from CSV rows into downloaded audio files using ffm
 
 Artwork is sourced from sidecar image files (`.jpg`, `.jpeg`, `.png`, `.webp`) that sit alongside the audio file in the output folder.
 
-- During a fresh download, yt-dlp automatically writes and converts the YouTube thumbnail to `.jpg` as a sidecar file.
-- If no sidecar is found after download, the downloader attempts a separate YouTube thumbnail fetch as a fallback.
-- The sidecar image is then embedded into the audio file as an APIC cover art tag using ffmpeg.
+- During a fresh download, the downloader first checks for a local sidecar image. If none exists, it asks yt-dlp for the best thumbnail URL and passes that URL directly to ffmpeg for embedding.
+- If a sidecar exists, that local image is embedded into the audio file as an APIC cover art tag using ffmpeg.
 - On reruns of already-downloaded (skipped) tracks, the downloader also checks for a local sidecar and embeds it without making any YouTube request.
 - When artwork is successfully embedded, `artwork_status = embedded` is written to the work CSV row.
-- During `reconcile_metadata.py`, the script first looks for an existing sidecar thumbnail. If missing and `youtube_url` exists in the CSV row, it fetches the thumbnail from YouTube and embeds it.
+- During `reconcile_metadata.py`, the script first looks for an existing sidecar thumbnail. If missing and `youtube_url` exists in the CSV row, it fetches the best thumbnail URL from YouTube metadata and embeds it directly.
 
 Artwork embedding is best-effort and non-blocking: if image embedding fails, text metadata is still written.
 

@@ -12,13 +12,13 @@ Get the playlist CSV from https://exportify.app/ and place the exported file in 
 - Uses SpotDL-style weighted matching (duration proximity + title/artist overlap scoring instead of hard rejects).
 - Extracts audio and requests MP3 at 320 kbps during download.
 - Embeds metadata into output files from CSV fields (title, artist, album, date, ISRC, row ID, row key, Spotify track ID).
-- Automatically embeds cover artwork from sidecar image files (`.jpg`, `.png`, `.webp`) whenever a matching image exists alongside the audio file — both on first download and on subsequent reruns of already-downloaded tracks.
+- Automatically embeds cover artwork from a local sidecar image when one exists, or fetches the best YouTube thumbnail URL and embeds it directly when needed.
 - Records `artwork_status = embedded` in the work CSV when artwork is successfully embedded.
 - Can reuse saved `resolved` rows and download them later without repeating YouTube Music search.
 - By default, rows with tracking data are skipped unless a mode explicitly continues from `resolved` or force-redownload is used.
 - Streams live row-by-row console logs so you can see what track is being checked, downloaded, skipped, or failing.
 - Includes reconcile utilities to scan existing audio files, restore CSV paths, and refresh metadata without downloading.
-- Supports processing order by persistent work CSV `id` using `--id-order` (ascending, descending, or default CSV order).
+- Supports processing order by persistent work CSV `id` using `--id-order` (`priority`, `ascending`, `descending`, or default CSV order).
 - Configurable yt-dlp throttling profile (rate limiting, sleep intervals) tuned by default for YouTube Music compliance.
 
 ## Source And Work CSV
@@ -58,7 +58,7 @@ On first run, these columns are appended to the work CSV if missing:
 
 `artwork_status` values:
 
-- **embedded**: A sidecar image file was found alongside the audio file and successfully embedded as the APIC cover art tag.
+- **embedded**: Artwork was successfully embedded, either from a local sidecar image or a fetched thumbnail URL.
 - *(empty)*: No matching image file was found, or artwork embedding has not yet been attempted for this row.
 
 `row_key` is an explicit identity key per row:
@@ -108,7 +108,7 @@ python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv
 Default config currently ships with:
 
 - `Limit: 0`
-- `DownloadEnabled: false`
+- `DownloadEnabled: true`
 - `SleepRequests: 1.1`
 - `LimitRate: 4M`
 - `ThrottledRate: 50K`
@@ -119,20 +119,23 @@ Default config currently ships with:
 ## Metadata Behavior
 
 - Title, artist, album, track, and other tags are written back to audio files using ffmpeg.
-- Cover artwork is embedded from sidecar image files (`.jpg`, `.png`, `.webp`) that sit alongside the audio file. During a fresh download yt-dlp writes and converts the YouTube thumbnail automatically; on reruns of already-downloaded tracks the downloader checks for an existing sidecar and embeds it without hitting YouTube again. Embedding is best-effort and non-blocking.
+- Cover artwork is embedded from sidecar image files (`.jpg`, `.png`, `.webp`) when they already exist next to the audio file. If no sidecar is present, the downloader fetches the best thumbnail URL from YouTube metadata and embeds it directly with ffmpeg. Embedding is best-effort and non-blocking.
 - `artwork_status` in the work CSV is set to `embedded` when artwork is successfully applied.
 - Metadata `track` is set to the persistent work CSV `id` when available.
 - Additional tags include `row_id`, `row_key`, `spotify_track_id`, and combined `comment`.
 - For Windows compatibility, tags are written at both container and stream metadata levels.
-- `reconcile_metadata.py` can backfill artwork for existing files using local sidecar thumbnails or by refetching from each row's `youtube_url`.
+- `reconcile_metadata.py` can backfill artwork for existing files using local sidecar thumbnails or by refetching the best thumbnail URL from each row's `youtube_url`.
 
 ## Project Files
 
 - `main.py`: Root launcher wrapper for normal folder/CSV runs.
 - `tools/reconcile_csv_files.py`: Wrapper for the reconcile utility.
-- `tools/reconcile_metadata.py`: Wrapper for metadata-only reconcile.
+- `exportify_downloader/scripts/reconcile_metadata.py`: Packaged metadata-only reconcile command.
 - `tools/check_tags.py`: One-off utility to inspect ID3 tags on a single file.
 - `tools/embed_artwork.py`: One-off utility to bulk-embed sidecar artwork into a folder of MP3s.
+- `tools/download_youtube_music_url.py`: One-off utility to download a single YouTube or YouTube Music track with config defaults.
+- `tools/find_new_tracks.py`: Compare a newly downloaded folder against an original library folder and report likely missing tracks.
+- `tools/bpm_analysis.py`: Estimate BPM across a folder using multiple analyzers and write a comparison CSV.
 - `exportify_downloader/launcher/`: Packaged launcher config, runner, and main orchestration.
 - `exportify_downloader/core/`: Packaged downloader, matcher, CSV state, metadata, yt-dlp, and utility logic.
 - `exportify_downloader/scripts/`: Packaged maintenance script implementations.

@@ -12,7 +12,7 @@ Use `downloader.config.json` for default values (tolerance, search results, slee
 - Use `--config-path` to load a different config file.
 - `Limit` controls how many rows are processed in one run. `0` means all rows.
 - `DownloadEnabled` controls whether a run resolves only or resolves and downloads.
-- Current default values are `Limit: 60` and `SleepRequests: 1.1`.
+- Current shipped defaults include `Limit: 0`, `DownloadEnabled: true`, `SleepRequests: 1.1`, and `IdOrder: priority`.
 
 Example:
 
@@ -61,13 +61,13 @@ python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --force-redownlo
 If audio files exist and you only want metadata updates:
 
 ```bash
-python tools/reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv
+python -m exportify_downloader.scripts.reconcile_metadata ./exportify.app/3_dnb_dance_floor.csv
 ```
 
 Only retag rows already marked downloaded:
 
 ```bash
-python tools/reconcile_metadata.py ./exportify.app/3_dnb_dance_floor.csv --downloaded-only
+python -m exportify_downloader.scripts.reconcile_metadata ./exportify.app/3_dnb_dance_floor.csv --downloaded-only
 ```
 
 ## 4) Reconcile Downloaded Rows With Empty output_file

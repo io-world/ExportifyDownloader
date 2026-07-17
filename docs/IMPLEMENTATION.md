@@ -19,12 +19,12 @@ That means the downloader does not keep a separate database or cache. Each row i
 
 - `main.py`: thin root wrapper that calls the packaged launcher
 - `tools/reconcile_csv_files.py`: wrapper for the packaged reconcile utility
-- `tools/reconcile_metadata.py`: wrapper for metadata-only reconcile
+- `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only reconcile command
 - `exportify_downloader/launcher/main.py`: packaged launcher that loads config, resolves cookies, and runs one or more CSV files
 - `exportify_downloader/core/downloader.py`: packaged core downloader, matcher coordinator, metadata writer, and CSV state updater
 - `exportify_downloader/scripts/reconcile.py`: packaged repair utility that scans audio files already on disk and writes matching `output_file` values back into the CSV
 - `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only maintenance utility for existing local files
-- `tools/`: one-off and maintenance utility scripts (`check_tags.py`, `embed_artwork.py`, `reconcile_csv_files.py`, `reconcile_metadata.py`)
+- `tools/`: one-off and maintenance utility scripts (`check_tags.py`, `embed_artwork.py`, `reconcile_csv_files.py`, `download_youtube_music_url.py`, `find_new_tracks.py`, `bpm_analysis.py`)
 - `downloader.config.json`: default settings for the Python launcher
 - `README.md`: user-facing overview and basic usage
 - `docs/MAINTENANCE.md`: operational recipes and recovery steps
@@ -284,11 +284,11 @@ These are not theoretical edge cases. They happen in normal use.
 - cookies materially improve success rates for age-restricted or protected videos.
 - metadata may appear missing in Windows Explorer until tags are rewritten and the cache refreshes.
 - path mismatches can happen between similar output folders and are recoverable with `reconcile_csv_files.py`.
-- id ordering can help you process rows in playlist order (via `--id-order ascending/descending`) for better manual monitoring and checkpoint context.
+- id ordering can help you process rows in playlist order (via `--id-order ascending/descending`) or prioritize untouched rows ahead of `retry` rows (via `--id-order priority`).
 
 Practical operator rules:
 
-- if repeated rate-limit errors appear across multiple rows, stop the run and retry later or use `--id-order ascending` to resume where you left off.
+- if repeated rate-limit errors appear across multiple rows, stop the run and retry later; use `--id-order priority` to resume with untouched rows first or `--id-order ascending` to continue in playlist order.
 - the YouTube Music-only search strategy means your candidate pool is narrower but higher quality than generic YouTube.
 
 ## Safe Change Areas
