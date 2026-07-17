@@ -18,8 +18,12 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".o
 REPO_ROOT = Path(__file__).resolve().parent.parent
 RUN_LOGS_DIR = REPO_ROOT / "run_logs"
 
-DEFAULT_ORIGINAL_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Randy DJ Music\3. DnB Dance Floor")
-DEFAULT_NEW_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Downloader\exportify.app\3_dnb_dance_floor")
+#DEFAULT_ORIGINAL_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Randy DJ Music\3. DnB Dance Floor")
+#DEFAULT_NEW_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Downloader\exportify.app\3_dnb_dance_floor")
+DEFAULT_ORIGINAL_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Randy DJ Music\2. House Garage UK")
+DEFAULT_NEW_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Downloader\exportify.app\2_house_uk_garage")
+
+
 DEFAULT_THRESHOLD = 0.85
 
 

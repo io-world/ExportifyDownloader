@@ -11,9 +11,14 @@ from typing import Optional
 
 from ..core.csv_work_state import write_csv
 from ..core.downloader import STATUS_DOWNLOADED
-from ..core.metadata import build_audio_metadata, embed_audio_metadata, embed_cover_art
+from ..core.metadata import (
+    build_audio_metadata,
+    embed_audio_metadata,
+    embed_cover_art,
+    embed_cover_art_from_url,
+)
 from ..core.utils import shorten_error_message, utc_now
-from ..core.yt_dlp_interface import download_thumbnail, resolve_thumbnail_file
+from ..core.yt_dlp_interface import get_thumbnail_url, resolve_thumbnail_file
 from .reconcile import (
     candidate_stems,
     collect_audio_files,
@@ -115,21 +120,26 @@ def main() -> int:
         try:
             embed_audio_metadata(match, build_audio_metadata(row, metadata_row_id(row, idx)))
             cover_image = resolve_thumbnail_file(match.parent, match.stem)
+            embedded_from_url = False
             if cover_image is None:
                 youtube_url = (row.get("youtube_url") or "").strip()
                 if youtube_url:
                     try:
-                        cover_image = download_thumbnail(youtube_url, str(match.with_suffix(".%(ext)s")))
+                        thumbnail_url = get_thumbnail_url(youtube_url)
+                        if thumbnail_url:
+                            embed_cover_art_from_url(match, thumbnail_url)
+                            artwork_embedded += 1
+                            embedded_from_url = True
                     except Exception as exc:  # noqa: BLE001
                         artwork_warnings += 1
                         print(
-                            f"[{idx}] warning: artwork download failed :: "
+                            f"[{idx}] warning: artwork fetch/embed failed :: "
                             f"{shorten_error_message(str(exc))}",
                             flush=True,
                         )
                 else:
                     artwork_missing_source += 1
-            if cover_image is None and (row.get("youtube_url") or "").strip():
+            if cover_image is None and not embedded_from_url and (row.get("youtube_url") or "").strip():
                 artwork_missing_thumbnail += 1
             if cover_image is not None:
                 try:

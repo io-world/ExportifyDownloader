@@ -237,7 +237,7 @@ Current meaning of the most important runtime settings:
 - `SearchResults`: how many YouTube candidates are inspected for matching
 - `DownloadEnabled`: whether the run stops after resolution or continues into download
 - `DurationTolerance`: maximum allowed duration mismatch in seconds
-- `IdOrder`: row processing order by persistent work CSV `id`
+- `IdOrder`: row processing order by persistent work CSV `id` or priority bucket
 
 CLI arguments override config values.
 

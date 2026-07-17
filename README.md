@@ -114,7 +114,7 @@ Default config currently ships with:
 - `ThrottledRate: 50K`
 - `SleepInterval: 10`
 - `MaxSleepInterval: 35`
-- `IdOrder: descending` (by work CSV `id`)
+- `IdOrder: priority` (untouched rows first, retry rows last)
 
 ## Metadata Behavior
 

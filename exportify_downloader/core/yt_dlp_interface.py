@@ -142,7 +142,6 @@ def download_audio(
         {
             "format": "bestaudio/best",
             "noplaylist": True,
-            "writethumbnail": True,
             "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
             "paths": {"home": str(output_path.parent)},
             "outtmpl": {"default": output_path.name},
@@ -151,10 +150,6 @@ def download_audio(
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": "mp3",
                     "preferredquality": "320",
-                },
-                {
-                    "key": "FFmpegThumbnailsConvertor",
-                    "format": "jpg",
                 },
             ],
         }
@@ -253,3 +248,71 @@ def resolve_thumbnail_file(output_dir: Path, base_name: str) -> Optional[Path]:
         reverse=True,
     )
     return files[0] if files else None
+
+
+def get_thumbnail_url(
+    url: str,
+    cookies_from_browser: str = "",
+    cookies_file: Optional[Path] = None,
+    sleep_requests: float = 0.0,
+    limit_rate: str = "",
+    throttled_rate: str = "",
+    sleep_interval: float = 0.0,
+    max_sleep_interval: float = 0.0,
+) -> Optional[str]:
+    options = build_ydl_options(
+        cookies_from_browser,
+        cookies_file,
+        sleep_requests,
+        limit_rate,
+        throttled_rate,
+        sleep_interval,
+        max_sleep_interval,
+    )
+    options.update(
+        {
+            "noplaylist": True,
+            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
+        }
+    )
+
+    try:
+        with YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except DownloadError as exc:
+        message = str(exc).strip() or "yt-dlp thumbnail URL extraction failed"
+        if classify_download_error(message) == "rate_limit":
+            raise RateLimitError(message) from exc
+        raise RuntimeError(message) from exc
+
+    if not isinstance(info, dict):
+        return None
+
+    thumbnail = info.get("thumbnail")
+    if isinstance(thumbnail, str) and thumbnail.strip():
+        return thumbnail.strip()
+
+    thumbnails = info.get("thumbnails")
+    if isinstance(thumbnails, list):
+        best_url = ""
+        best_size = -1
+        for item in thumbnails:
+            if not isinstance(item, dict):
+                continue
+            candidate_url = item.get("url")
+            if not isinstance(candidate_url, str) or not candidate_url.strip():
+                continue
+            width = item.get("width")
+            height = item.get("height")
+            score = 0
+            if isinstance(width, int):
+                score += width
+            if isinstance(height, int):
+                score += height
+            if score >= best_size:
+                best_size = score
+                best_url = candidate_url.strip()
+        if best_url:
+            return best_url
+
+    return None

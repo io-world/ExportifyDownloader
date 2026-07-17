@@ -21,7 +21,7 @@ DEFAULTS: Dict[str, Any] = {
     "ThrottledRate": "",
     "SleepInterval": 0.0,
     "MaxSleepInterval": 0.0,
-    "IdOrder": "default",
+    "IdOrder": "priority",
     "CookiesFromBrowser": "",
     "CookiesFile": "",
 }
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--id-order",
         "--IdOrder",
-        choices=["default", "ascending", "descending"],
+        choices=["default", "priority", "ascending", "descending"],
         default=None,
         dest="id_order",
     )

@@ -30,11 +30,16 @@ from .utils import (
     stable_base_name,
     utc_now,
 )
-from .metadata import build_audio_metadata, embed_audio_metadata, embed_cover_art
+from .metadata import (
+    build_audio_metadata,
+    embed_audio_metadata,
+    embed_cover_art,
+    embed_cover_art_from_url,
+)
 from .yt_dlp_interface import (
     RateLimitError,
     download_audio,
-    download_thumbnail,
+    get_thumbnail_url,
     resolve_downloaded_file,
     resolve_thumbnail_file,
     run_yt_dlp_json,
@@ -141,7 +146,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--id-order",
-        choices=["default", "ascending", "descending"],
+        choices=["default", "priority", "ascending", "descending"],
         default="default",
         help="Process rows by persistent work CSV id order.",
         dest="id_order",
@@ -187,10 +192,30 @@ def row_id_value(row: Dict[str, str]) -> Optional[int]:
     return None
 
 
+def row_priority_bucket(row: Dict[str, str]) -> int:
+    status = (row.get("download_status") or "").strip().lower()
+    if not status:
+        return 0
+    if status == STATUS_RETRY:
+        return 2
+    return 1
+
+
 def get_row_processing_order(rows: List[Dict[str, str]], id_order: str) -> List[int]:
     order = list(range(len(rows)))
     if id_order == "default":
         return order
+
+    if id_order == "priority":
+        return sorted(
+            order,
+            key=lambda i: (
+                row_priority_bucket(rows[i]),
+                row_id_value(rows[i]) is None,
+                row_id_value(rows[i]) if row_id_value(rows[i]) is not None else 0,
+                i,
+            ),
+        )
 
     if id_order == "ascending":
         return sorted(
@@ -438,9 +463,8 @@ def main() -> int:
                 cover_image = resolve_thumbnail_file(saved_file.parent, saved_file.stem)
                 if cover_image is None:
                     try:
-                        cover_image = download_thumbnail(
+                        thumbnail_url = get_thumbnail_url(
                             url,
-                            str(saved_file.with_suffix(".%(ext)s")),
                             args.cookies_from_browser.strip(),
                             cookies_file,
                             args.sleep_requests,
@@ -449,9 +473,12 @@ def main() -> int:
                             args.sleep_interval,
                             args.max_sleep_interval,
                         )
+                        if thumbnail_url:
+                            embed_cover_art_from_url(saved_file, thumbnail_url)
+                            row["artwork_status"] = "embedded"
                     except Exception as exc:  # noqa: BLE001
-                        log(f"[{idx}] warning: artwork download failed :: {shorten_error_message(str(exc))}")
-                if cover_image is not None:
+                        log(f"[{idx}] warning: artwork fetch/embed failed :: {shorten_error_message(str(exc))}")
+                elif cover_image is not None:
                     try:
                         embed_cover_art(saved_file, cover_image)
                         row["artwork_status"] = "embedded"
