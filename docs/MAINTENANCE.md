@@ -91,6 +91,12 @@ If there is only one CSV in `exportify.app`, the script can also be run without 
 .\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py
 ```
 
+Check completion across all CSV files in a folder:
+
+```powershell
+.\.venv\Scripts\python.exe .\tools\check_csv_download_completion.py .\exportify.app
+```
+
 Practical rule:
 
 - Use exact stem matching, not glob wildcards, for names containing square brackets (`[` and `]`).

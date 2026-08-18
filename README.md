@@ -130,6 +130,7 @@ Default config currently ships with:
 
 - `main.py`: Root launcher wrapper for normal folder/CSV runs.
 - `tools/reconcile_csv_files.py`: Wrapper for the reconcile utility.
+- `tools/check_csv_download_completion.py`: Report folder-level and per-CSV completion counts from work CSV state.
 - `exportify_downloader/scripts/reconcile_metadata.py`: Packaged metadata-only reconcile command.
 - `tools/check_tags.py`: One-off utility to inspect ID3 tags on a single file.
 - `tools/embed_artwork.py`: One-off utility to bulk-embed sidecar artwork into a folder of MP3s.

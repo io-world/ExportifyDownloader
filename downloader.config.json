@@ -1,6 +1,6 @@
 {
-  "CsvPath": ".\\exportify.app\\3_dnb_dance_floor.csv",
-  "CsvFolder": ".\\exportify.app",
+  "CsvPath": "",
+  "CsvFolder": ".\\exportify.app\\Shambala Sundays\\",
   "DurationTolerance": 10,
   "SearchResults": 6,
   "DownloadEnabled": true,

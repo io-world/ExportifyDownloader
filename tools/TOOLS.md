@@ -45,6 +45,12 @@ This file explains what each script in this folder does.
 - Delegates execution to `exportify_downloader.scripts.reconcile.main()`.
 - Use this instead of importing the package manually when you want a script entrypoint.
 
+## check_csv_download_completion.py
+- Reports per-CSV and folder-level download completion counts.
+- Counts a row as complete only when `download_status=downloaded` and `output_file` exists on disk.
+- Prefers sibling `_work.csv` files when both source and work CSVs are present.
+- Useful for seeing how many tracks and playlists are fully finished in one folder scan.
+
 ## url_downloads/
 - Output folder used by `download_youtube_music_url.py` for downloaded tracks.
 - Created/populated as needed.
