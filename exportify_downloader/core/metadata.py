@@ -3,13 +3,47 @@
 
 from __future__ import annotations
 
+import ctypes
+import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .utils import clean_meta_value, extract_spotify_track_id, first_artist
 
 ROW_KEY_COLUMN = "row_key"
+
+# 100-ns intervals between Windows epoch (1601-01-01) and Unix epoch (1970-01-01)
+_EPOCH_AS_FILETIME = 116_444_736_000_000_000
+
+
+def _restore_timestamps(path: Path, original_stat: os.stat_result) -> None:
+    os.utime(path, (original_stat.st_atime, original_stat.st_mtime))
+    if sys.platform == "win32":
+        _restore_windows_creation_time(path, original_stat.st_ctime)
+
+
+def _restore_windows_creation_time(path: Path, ctime: float) -> None:
+    ft_val = int(ctime * 10_000_000) + _EPOCH_AS_FILETIME
+    lo = ctypes.c_ulong(ft_val & 0xFFFFFFFF)
+    hi = ctypes.c_ulong(ft_val >> 32)
+    ft = ctypes.c_ulonglong(lo.value | (hi.value << 32))
+    handle = ctypes.windll.kernel32.CreateFileW(
+        str(path),
+        0x0100,  # FILE_WRITE_ATTRIBUTES
+        0,
+        None,
+        3,  # OPEN_EXISTING
+        0x80,  # FILE_ATTRIBUTE_NORMAL
+        None,
+    )
+    if handle == -1:
+        return
+    try:
+        ctypes.windll.kernel32.SetFileTime(handle, ctypes.byref(ft), None, None)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
 
 
 def build_audio_metadata(row: Dict[str, str], row_id: Optional[int] = None) -> Dict[str, str]:
@@ -100,12 +134,14 @@ def embed_audio_metadata(file_path: Path, metadata: Dict[str, str]) -> None:
 
     cmd.append(str(tagged_file))
 
+    original_stat = file_path.stat()
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()
         raise RuntimeError(stderr or "ffmpeg metadata embedding failed")
 
     tagged_file.replace(file_path)
+    _restore_timestamps(file_path, original_stat)
 
 
 def embed_cover_art(file_path: Path, cover_image_path: Path) -> None:
@@ -146,12 +182,14 @@ def embed_cover_art(file_path: Path, cover_image_path: Path) -> None:
 
     cmd.append(str(tagged_file))
 
+    original_stat = file_path.stat()
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()
         raise RuntimeError(stderr or "ffmpeg cover art embedding failed")
 
     tagged_file.replace(file_path)
+    _restore_timestamps(file_path, original_stat)
 
 
 def embed_cover_art_from_url(file_path: Path, cover_image_url: str) -> None:
@@ -193,9 +231,11 @@ def embed_cover_art_from_url(file_path: Path, cover_image_url: str) -> None:
 
     cmd.append(str(tagged_file))
 
+    original_stat = file_path.stat()
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         stderr = (proc.stderr or "").strip()
         raise RuntimeError(stderr or "ffmpeg cover art embedding from URL failed")
 
     tagged_file.replace(file_path)
+    _restore_timestamps(file_path, original_stat)

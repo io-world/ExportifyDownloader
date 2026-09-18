@@ -197,8 +197,10 @@ def prepare_work_csv(source_csv_path: Path) -> Path:
     for key, source_row in source_keyed.items():
         if key in work_by_key:
             existing = work_by_key[key]
-            for col in source_fieldnames:
-                existing[col] = source_row.get(col, "")
+            # Preserve source columns for already-downloaded rows so dates aren't overwritten
+            if (existing.get("download_status") or "").strip().lower() != "downloaded":
+                for col in source_fieldnames:
+                    existing[col] = source_row.get(col, "")
             continue
 
         new_row = {col: "" for col in work_fieldnames}
