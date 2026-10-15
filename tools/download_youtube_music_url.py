@@ -9,6 +9,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import DownloadError
 
@@ -23,7 +27,7 @@ from exportify_downloader.launcher.config import DEFAULTS, load_config, resolve_
 
 
 # Set this to a YouTube Music URL if you prefer running the script without passing a URL arg.
-DEFAULT_URL = "https://music.youtube.com/watch?v=hcGO5p4gQ-k"
+DEFAULT_URL = "https://music.youtube.com/watch?v=dRoRUs7LNwk"
 
 
 def parse_args() -> argparse.Namespace:

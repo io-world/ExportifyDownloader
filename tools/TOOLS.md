@@ -27,29 +27,32 @@ This file explains what each script in this folder does.
   - artwork from the best thumbnail URL
 - Default output folder is `tools/url_downloads`.
 
-## embed_artwork.py
-- Finds matching image files next to MP3s and embeds them as front cover art (ID3 APIC).
-- Image preference order: `.jpg`/`.jpeg`, then `.png`, then `.webp`.
-- Skips tracks that already have artwork.
-- Prints embedded/skipped/missing summary.
-- Note: target folder is currently hardcoded in the script.
-
 ## find_new_tracks.py
 - Compares audio files in a "new" folder against an "original" folder.
 - Uses fuzzy filename matching (full name and title-only variants) to detect near-duplicates.
 - Reports files in the new folder that do not have a close match above threshold.
 - Prints missing files and writes a CSV report to `run_logs/find_new_tracks_<timestamp>.csv` by default.
 
-## reconcile_csv_files.py
-- Thin wrapper that launches the packaged reconcile command.
-- Delegates execution to `exportify_downloader.scripts.reconcile.main()`.
-- Use this instead of importing the package manually when you want a script entrypoint.
-
-## check_csv_download_completion.py
-- Reports per-CSV and folder-level download completion counts.
-- Counts a row as complete only when `download_status=downloaded` and `output_file` exists on disk.
+## playlist_download_report.py
+- Summarizes row statuses and completion counts across playlist CSVs.
+- Writes one CSV containing each track whose recorded audio file is missing, with an `output_folder` column for its original playlist destination.
+- The downloader honors `output_folder`, so the exported rows can be processed together without moving tracks into one shared playlist folder.
+- Errors are cleared in the exported rows so those tracks are eligible for another attempt; source/work CSVs are not modified.
 - Prefers sibling `_work.csv` files when both source and work CSVs are present.
-- Useful for seeing how many tracks and playlists are fully finished in one folder scan.
+- Defaults to writing `run_logs/playlist_download_report_<timestamp>.csv`; use `--csv-out` to choose another path.
+
+## download_missing_tracks.py
+- Downloads tracks from a playlist download report CSV created by `playlist_download_report.py`.
+- Uses the normal downloader settings from `downloader.config.json` and downloads each row into its `output_folder`.
+- Updates download status in the report CSV as tracks are processed.
+- Set `REPORT_CSV_PATH` near the top of the script to choose a default CSV; when left as `None`, the newest `run_logs/playlist_download_report_*.csv` is used.
+- A CSV path passed on the command line takes priority over `REPORT_CSV_PATH`.
+- Example: `python tools/download_missing_tracks.py run_logs/playlist_download_report_YYYYMMDD_HHMMSS.csv`.
+
+## CSV reconciliation
+- Reconciles audio files on disk with matching playlist CSV rows and restores output paths without downloading.
+- Run with `python -m exportify_downloader.scripts.reconcile <csv-path>`.
+- Use `python -m exportify_downloader.scripts.reconcile_metadata <csv-path>` to refresh tags and artwork for existing files.
 
 ## url_downloads/
 - Output folder used by `download_youtube_music_url.py` for downloaded tracks.

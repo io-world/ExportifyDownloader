@@ -1,6 +1,6 @@
 {
-  "CsvPath": "",
-  "CsvFolder": ".\\exportify.app\\Shambala Sundays\\",
+  "CsvPath": ".\\exportify.app\\Shambala Sundays\\House_(shambala_sundays).csv",
+  "CsvFolder": ".\\exportify.app\\Shambala Sundays",
   "DurationTolerance": 10,
   "SearchResults": 6,
   "DownloadEnabled": true,

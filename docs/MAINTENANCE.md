@@ -79,23 +79,34 @@ Note: with the source/work CSV model, reconcile updates the `_work.csv`. If you 
 Run the reconcile utility directly:
 
 ```powershell
-.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv
-.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor_work.csv
-.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --files-dir .\exportify.app\3_dnb_dance_floor
-.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv --clear-missing
+.\.venv\Scripts\python.exe -m exportify_downloader.scripts.reconcile .\exportify.app\3_dnb_dance_floor.csv
+.\.venv\Scripts\python.exe -m exportify_downloader.scripts.reconcile .\exportify.app\3_dnb_dance_floor_work.csv
+.\.venv\Scripts\python.exe -m exportify_downloader.scripts.reconcile .\exportify.app\3_dnb_dance_floor.csv --files-dir .\exportify.app\3_dnb_dance_floor
+.\.venv\Scripts\python.exe -m exportify_downloader.scripts.reconcile .\exportify.app\3_dnb_dance_floor.csv --clear-missing
 ```
 
 If there is only one CSV in `exportify.app`, the script can also be run without arguments:
 
 ```powershell
-.\.venv\Scripts\python.exe .\tools\reconcile_csv_files.py
+.\.venv\Scripts\python.exe -m exportify_downloader.scripts.reconcile
 ```
 
-Check completion across all CSV files in a folder:
+Create a combined download-status summary and CSV of tracks that still need downloading:
 
 ```powershell
-.\.venv\Scripts\python.exe .\tools\check_csv_download_completion.py .\exportify.app
+.\.venv\Scripts\python.exe .\tools\playlist_download_report.py .\exportify.app
 ```
+
+The report writes to `run_logs/playlist_download_report_<timestamp>.csv` by default. It includes per-playlist and folder-wide completion counts. Each missing track row includes `output_folder`, the playlist's normal download folder. To download the report, pass the exact path printed by the report:
+
+```powershell
+.\.venv\Scripts\python.exe .\tools\download_missing_tracks.py .\run_logs\playlist_download_report_20261014_120000.csv
+```
+
+The command uses `downloader.config.json` for download settings and updates the report CSV as it processes rows. Pass `--config-path <path>` to use another config.
+You can set `REPORT_CSV_PATH` near the top of `tools/download_missing_tracks.py` to select a default report CSV. If left as `None`, the tool automatically uses the newest matching report in `run_logs`. A CSV path passed as an argument overrides the variable.
+
+Use `--csv-out <path>` with the report command to choose the report CSV path.
 
 Practical rule:
 
@@ -106,7 +117,7 @@ Practical rule:
 Python syntax check:
 
 ```powershell
-.\.venv\Scripts\python.exe -m py_compile .\main.py .\tools\reconcile_csv_files.py .\exportify_downloader\launcher\main.py .\exportify_downloader\core\downloader.py .\exportify_downloader\scripts\reconcile.py .\exportify_downloader\scripts\reconcile_metadata.py
+.\.venv\Scripts\python.exe -m py_compile .\main.py .\exportify_downloader\launcher\main.py .\exportify_downloader\core\downloader.py .\exportify_downloader\scripts\reconcile.py .\exportify_downloader\scripts\reconcile_metadata.py
 ```
 
 Inspect tag values:

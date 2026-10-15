@@ -69,7 +69,7 @@ Common reasons:
 - File name contains special characters and lookup logic misses it.
 - Explorer metadata cache has stale values.
 
-If `output_file` is blank but the audio file already exists on disk, first run `reconcile_csv_files.py` to restore the CSV path reference, then run `reconcile_metadata.py` to refresh tags.
+If `output_file` is blank but the audio file already exists on disk, first run `python -m exportify_downloader.scripts.reconcile` to restore the CSV path reference, then run `python -m exportify_downloader.scripts.reconcile_metadata` to refresh tags.
 
 ## Validation Command
 

@@ -129,11 +129,10 @@ Default config currently ships with:
 ## Project Files
 
 - `main.py`: Root launcher wrapper for normal folder/CSV runs.
-- `tools/reconcile_csv_files.py`: Wrapper for the reconcile utility.
-- `tools/check_csv_download_completion.py`: Report folder-level and per-CSV completion counts from work CSV state.
+- `tools/playlist_download_report.py`: Summarize all playlist CSVs and export tracks without an existing download, including each track's destination folder.
+- `tools/download_missing_tracks.py`: Download a missing-tracks report CSV into each row's destination folder.
 - `exportify_downloader/scripts/reconcile_metadata.py`: Packaged metadata-only reconcile command.
 - `tools/check_tags.py`: One-off utility to inspect ID3 tags on a single file.
-- `tools/embed_artwork.py`: One-off utility to bulk-embed sidecar artwork into a folder of MP3s.
 - `tools/download_youtube_music_url.py`: One-off utility to download a single YouTube or YouTube Music track with config defaults.
 - `tools/find_new_tracks.py`: Compare a newly downloaded folder against an original library folder and report likely missing tracks.
 - `tools/bpm_analysis.py`: Estimate BPM across a folder using multiple analyzers and write a comparison CSV.

@@ -45,6 +45,16 @@ def main() -> int:
 
     csv_folder_raw = str(settings.get("CsvFolder", "")).strip() or "./exportify.app"
     resolved_folder = resolve_input_path(script_dir, csv_folder_raw)
+    if resolved_folder.exists() and resolved_folder.is_file():
+        if resolved_folder.suffix.lower() != ".csv":
+            print(f"CSV file not found: {resolved_folder}", file=sys.stderr)
+            return 1
+        target_csv = resolved_folder
+        if not target_csv.stem.lower().endswith("_work"):
+            target_csv = prepare_work_csv(target_csv)
+        code = invoke_csv_download(script_dir, target_csv, settings, 1, 1)
+        return int(code)
+
     if not resolved_folder.exists() or not resolved_folder.is_dir():
         print(f"CSV folder not found: {resolved_folder}", file=sys.stderr)
         return 1

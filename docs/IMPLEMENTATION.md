@@ -18,13 +18,13 @@ That means the downloader does not keep a separate database or cache. Each row i
 ## Main Files
 
 - `main.py`: thin root wrapper that calls the packaged launcher
-- `tools/reconcile_csv_files.py`: wrapper for the packaged reconcile utility
+- `exportify_downloader/scripts/reconcile.py`: utility to reconcile audio files with playlist CSV rows and restore output paths
 - `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only reconcile command
 - `exportify_downloader/launcher/main.py`: packaged launcher that loads config, resolves cookies, and runs one or more CSV files
 - `exportify_downloader/core/downloader.py`: packaged core downloader, matcher coordinator, metadata writer, and CSV state updater
 - `exportify_downloader/scripts/reconcile.py`: packaged repair utility that scans audio files already on disk and writes matching `output_file` values back into the CSV
 - `exportify_downloader/scripts/reconcile_metadata.py`: packaged metadata-only maintenance utility for existing local files
-- `tools/`: one-off and maintenance utility scripts (`check_tags.py`, `embed_artwork.py`, `reconcile_csv_files.py`, `download_youtube_music_url.py`, `find_new_tracks.py`, `bpm_analysis.py`)
+- `tools/`: one-off and maintenance utility scripts (`check_tags.py`, `download_youtube_music_url.py`, `find_new_tracks.py`, `bpm_analysis.py`, and playlist report/download commands)
 - `downloader.config.json`: default settings for the Python launcher
 - `README.md`: user-facing overview and basic usage
 - `docs/MAINTENANCE.md`: operational recipes and recovery steps
@@ -195,7 +195,7 @@ For Windows compatibility, metadata is written both:
 
 ## Reconcile Utility
 
-`reconcile_csv_files.py` exists because file paths in the CSV can become stale or blank even when the audio file is already on disk.
+The reconcile utility is available as `python -m exportify_downloader.scripts.reconcile` because file paths in the CSV can become stale or blank even when the audio file is already on disk.
 
 It works by:
 
@@ -283,7 +283,7 @@ These are not theoretical edge cases. They happen in normal use.
 - `This content isn't available, try again later` can repeat across many rows during a bad session.
 - cookies materially improve success rates for age-restricted or protected videos.
 - metadata may appear missing in Windows Explorer until tags are rewritten and the cache refreshes.
-- path mismatches can happen between similar output folders and are recoverable with `reconcile_csv_files.py`.
+- path mismatches can happen between similar output folders and are recoverable with the reconcile utility.
 - id ordering can help you process rows in playlist order (via `--id-order ascending/descending`) or prioritize untouched rows ahead of `retry` rows (via `--id-order priority`).
 
 Practical operator rules:
@@ -330,9 +330,9 @@ When implementing new behavior, use this order:
 Good validation commands:
 
 ```bash
-python -m py_compile main.py reconcile_csv_files.py exportify_downloader/launcher/main.py exportify_downloader/core/downloader.py exportify_downloader/scripts/reconcile.py
+python -m py_compile main.py exportify_downloader/launcher/main.py exportify_downloader/core/downloader.py exportify_downloader/scripts/reconcile.py
 python main.py --csv-path ./exportify.app/3_dnb_dance_floor.csv --limit 1
-python tools/reconcile_csv_files.py
+python -m exportify_downloader.scripts.reconcile
 ```
 
 ## Extension Ideas
@@ -354,4 +354,4 @@ If you only remember five things about this codebase, remember these:
 2. `main.py` is the wrapper entrypoint, `exportify_downloader/launcher/main.py` is orchestration, and `exportify_downloader/core/downloader.py` is business logic
 3. reruns depend on `download_status` plus a real `output_file`
 4. YouTube rate limiting is the main operational constraint
-5. `reconcile_csv_files.py` is the wrapper entrypoint and `exportify_downloader/scripts/reconcile.py` is the repair tool when CSV state and disk state drift apart
+5. `exportify_downloader/scripts/reconcile.py` is the repair tool when CSV state and disk state drift apart; run it with `python -m exportify_downloader.scripts.reconcile`

@@ -120,7 +120,7 @@ def main() -> int:
     if csv_path is None:
         print(
             "Could not determine CSV automatically. Pass csv_path explicitly, for example: "
-            r"reconcile_csv_files.py .\exportify.app\3_dnb_dance_floor.csv",
+            r"python -m exportify_downloader.scripts.reconcile .\exportify.app\3_dnb_dance_floor.csv",
             file=sys.stderr,
         )
         return 2

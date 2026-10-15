@@ -253,7 +253,6 @@ def main() -> int:
             return 1
 
     output_dir = csv_path.parent / playlist_stem(csv_path)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -262,6 +261,9 @@ def main() -> int:
             return 1
         fieldnames = list(reader.fieldnames)
         rows = [dict(r) for r in reader]
+
+    if any(not (row.get("output_folder") or "").strip() for row in rows):
+        output_dir.mkdir(parents=True, exist_ok=True)
 
     missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
     if missing:
@@ -419,7 +421,16 @@ def main() -> int:
                     continue
 
             base_name = stable_base_name(artist, track)
-            output_template = str(output_dir / f"{base_name}.%(ext)s")
+            row_output_dir_value = (row.get("output_folder") or "").strip()
+            if row_output_dir_value:
+                row_output_dir = Path(row_output_dir_value)
+                if not row_output_dir.is_absolute():
+                    row_output_dir = csv_path.parent / row_output_dir
+                row_output_dir = row_output_dir.resolve()
+            else:
+                row_output_dir = output_dir
+            row_output_dir.mkdir(parents=True, exist_ok=True)
+            output_template = str(row_output_dir / f"{base_name}.%(ext)s")
             log(f"[{idx}] downloading: {artist} - {track} <- {title}")
 
             saved_file = download_audio(
@@ -434,7 +445,7 @@ def main() -> int:
                 args.max_sleep_interval,
             )
             if saved_file is None:
-                saved_file = resolve_downloaded_file(output_dir, base_name)
+                saved_file = resolve_downloaded_file(row_output_dir, base_name)
             if saved_file is not None:
                 embed_audio_metadata(saved_file, build_audio_metadata(row, metadata_row_id(row, idx)))
                 cover_image = resolve_thumbnail_file(saved_file.parent, saved_file.stem)
