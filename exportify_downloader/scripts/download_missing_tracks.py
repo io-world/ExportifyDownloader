@@ -7,13 +7,10 @@ import argparse
 import csv
 import sys
 from pathlib import Path
-from typing import Any, Dict
-
+from ..core.csv_work_state import OUTPUT_FOLDER_COLUMN
 from ..core.downloader import REQUIRED_COLUMNS
-from ..launcher.config import DEFAULTS, load_config, resolve_input_path
+from ..launcher.config import DEFAULT_CONFIG_PATH, load_settings, resolve_input_path
 from ..launcher.runner import invoke_csv_download
-
-OUTPUT_FOLDER_COLUMN = "output_folder"
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--config-path",
-        default="./downloader.config.json",
+        default=DEFAULT_CONFIG_PATH,
         help="Path to downloader JSON config (default: ./downloader.config.json).",
     )
     return parser.parse_args()
@@ -93,26 +90,8 @@ def main(default_report_csv: Path | None = None) -> int:
         print(f"No tracks to download in report: {report_path}")
         return 0
 
-    config_path = resolve_input_path(script_dir, args.config_path)
     try:
-        config = load_config(config_path)
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    settings: Dict[str, Any] = dict(DEFAULTS)
-    for key in settings:
-        if key in config:
-            settings[key] = config[key]
-
-    default_cookies_path = (script_dir / "music youtube cookies.txt").resolve()
-    if not str(settings.get("CookiesFromBrowser", "")).strip() and not str(
-        settings.get("CookiesFile", "")
-    ).strip():
-        if default_cookies_path.exists():
-            settings["CookiesFile"] = str(default_cookies_path)
-
-    try:
+        settings = load_settings(script_dir, args.config_path)
         return invoke_csv_download(script_dir, report_path, settings, 1, 1)
     except (OSError, RuntimeError) as exc:
         print(f"Could not start missing-track downloads: {exc}", file=sys.stderr)

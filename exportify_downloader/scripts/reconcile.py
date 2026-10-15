@@ -9,15 +9,19 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from ..core.csv_work_state import ensure_tracking_columns, playlist_stem, work_csv_path_for, write_csv
-from ..core.downloader import STATUS_DOWNLOADED
+from ..core.csv_work_state import (
+    STATUS_DOWNLOADED,
+    ensure_tracking_columns,
+    playlist_stem,
+    work_csv_path_for,
+    write_csv,
+)
 from ..core.utils import (
     first_artist,
     stable_base_name,
     utc_now,
 )
-
-DEFAULT_AUDIO_EXTENSIONS = {".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".opus"}
+from ..core.yt_dlp_interface import AUDIO_EXTENSIONS
 
 
 def parse_args() -> argparse.Namespace:
@@ -82,7 +86,7 @@ def resolve_target_csv_path(path: Path) -> Path:
 def collect_audio_files(files_dir: Path) -> Dict[str, Path]:
     files_by_stem: Dict[str, Path] = {}
     for path in sorted(files_dir.iterdir()):
-        if not path.is_file() or path.suffix.lower() not in DEFAULT_AUDIO_EXTENSIONS:
+        if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
             continue
         key = path.stem.casefold()
         current = files_by_stem.get(key)
@@ -111,6 +115,14 @@ def candidate_stems(row: Dict[str, str]) -> List[str]:
             seen.add(key)
             deduped.append(item)
     return deduped
+
+
+def find_matching_file(row: Dict[str, str], files_by_stem: Dict[str, Path]) -> Optional[Path]:
+    for stem in candidate_stems(row):
+        match = files_by_stem.get(stem.casefold())
+        if match is not None:
+            return match
+    return None
 
 
 def main() -> int:
@@ -154,12 +166,7 @@ def main() -> int:
     cleared = 0
 
     for row in rows:
-        match: Optional[Path] = None
-        for stem in candidate_stems(row):
-            match = files_by_stem.get(stem.casefold())
-            if match is not None:
-                break
-
+        match = find_matching_file(row, files_by_stem)
         current_output = (row.get("output_file") or "").strip()
         current_status = (row.get("download_status") or "").strip().lower()
 

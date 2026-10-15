@@ -2,3 +2,5 @@ music youtube cookies.txt
 __pycache__/
 *.py[cod]
 run_logs/*
+tools/url_downloads/*
+!tools/url_downloads/.gitkeep

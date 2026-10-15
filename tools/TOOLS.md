@@ -9,17 +9,19 @@ This file explains what each script in this folder does.
   - essentia
   - bpm-detector CLI
   - Anthropic web-search estimate (if `ANTHROPIC_API_KEY` is set)
-- Writes combined results to CSV (default under `run_logs/bpm_analysis_results.csv`).
-- Good for comparing BPM estimates and averaging across methods.
+- Writes combined results to CSV (default under `run_logs/bpm_analysis_results.csv`), one row per file as it finishes.
+- Rerunning with the same output CSV skips files already analyzed; pass `--fresh` to start over.
+- `consensus_bpm` is the median of all readings after folding each into one octave (`--min-bpm`, default 88, gives 88-176), so half/double-time readings don't skew it. `bpm_spread` shows how much the folded readings disagree.
+- Missing tools and errors are listed in the `notes` column.
+- The web-search estimate uses the `anthropic` SDK with `claude-sonnet-5-5`.
 
 ## check_tags.py
-- Quick one-off tag inspection script for a single MP3 path.
+- Quick tag inspection for a single MP3: `python tools/check_tags.py <file.mp3>`.
 - Prints duration, bitrate, and all ID3 frames.
 - Useful for debugging metadata on a specific file.
-- Note: path is currently hardcoded in the script.
 
 ## download_youtube_music_url.py
-- Downloads one YouTube/YouTube Music track URL.
+- Downloads one YouTube/YouTube Music track URL: `python tools/download_youtube_music_url.py <url>` (a URL is required unless `DEFAULT_URL` is set in the script).
 - Uses project config defaults from `downloader.config.json`.
 - Supports cookie auth (`CookiesFromBrowser` or `CookiesFile`) and output folder overrides.
 - After download, embeds:
@@ -52,8 +54,8 @@ This file explains what each script in this folder does.
 ## CSV reconciliation
 - Reconciles audio files on disk with matching playlist CSV rows and restores output paths without downloading.
 - Run with `python -m exportify_downloader.scripts.reconcile <csv-path>`.
-- Use `python -m exportify_downloader.scripts.reconcile_metadata <csv-path>` to refresh tags and artwork for existing files.
+- Use `python -m exportify_downloader.scripts.reconcile_metadata <csv-path>` to refresh tags and artwork for existing files. Existing embedded art is kept unless `--refresh-art` is passed.
 
 ## url_downloads/
 - Output folder used by `download_youtube_music_url.py` for downloaded tracks.
-- Created/populated as needed.
+- Created/populated as needed. Downloaded files here are git-ignored.

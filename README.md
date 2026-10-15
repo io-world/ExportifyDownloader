@@ -52,13 +52,14 @@ On first run, these columns are appended to the work CSV if missing:
 - **resolved**: A YouTube Music match was chosen and saved in the work CSV, but download is disabled or not yet run.
 - **downloaded**: File successfully downloaded and exists on disk. Row is complete. Skipped on subsequent runs (unless `--force-redownload` is used).
 - **unresolved**: No safe candidate match found within duration tolerance. Row is skipped and not retried unless explicitly re-running.
-- **error**: Search, download, or metadata write failed. Row is skipped and marked for potential manual review.
-- **retry**: The row hit a transient YouTube rate limit (e.g., HTTP 429). Should be retried on a later rerun to allow the rate limit to clear.
+- **error**: Search or download failed for a reason specific to the track (for example the video is unavailable). Row is skipped on later runs and left for manual review. Tagging/artwork failures after a successful download are only logged as warnings; the row stays `downloaded`.
+- **retry**: The row hit a YouTube rate limit (e.g., HTTP 429) or a network/server failure (connection refused, DNS failure, timeout, HTTP 5xx). Retried automatically on a later rerun. Older `error` rows whose message matches one of these are converted to `retry` on the next run.
 - **skipped**: Runtime-only counter for rows already marked as downloaded or complete (not stored in CSV).
 
 `artwork_status` values:
 
 - **embedded**: Artwork was successfully embedded, either from a local sidecar image or a fetched thumbnail URL.
+- **failed**: Artwork embedding was attempted and failed (see the run log).
 - *(empty)*: No matching image file was found, or artwork embedding has not yet been attempted for this row.
 
 `row_key` is an explicit identity key per row:
@@ -146,7 +147,8 @@ Default config currently ships with:
 
 - If YouTube returns HTTP 403, run with `--cookies-from-browser edge` (or your browser).
 - If you see rate-limit behavior, increase `--sleep-requests` (for example 1.5 to 3.0).
-- If you see repeated `try again later` or session rate-limit errors, the downloader now marks the row with `download_status=retry`, then stops early so the rest of the run is not flooded with the same transient error.
+- If you see repeated `try again later` or session rate-limit errors, the downloader now marks the row with `download_status=retry`, then stops early so the rest of the run is not flooded with the same transient error. It also stops after 3 network errors in a row.
+- A run that stops early exits with code 75; in folder (batch) mode the launcher then stops instead of starting the next playlist.
 - Rerun later and those `retry` rows will be attempted again automatically without clearing CSV fields.
 - If some titles appear blank in Windows Explorer, retag files and refresh Explorer metadata cache.
 - If a row is `downloaded` but `output_file` is blank, reconcile the path then retag.

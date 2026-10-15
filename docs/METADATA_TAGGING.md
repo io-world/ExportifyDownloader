@@ -6,11 +6,12 @@ This project writes metadata from CSV rows into downloaded audio files using ffm
 
 Artwork is sourced from sidecar image files (`.jpg`, `.jpeg`, `.png`, `.webp`) that sit alongside the audio file in the output folder.
 
-- During a fresh download, the downloader first checks for a local sidecar image. If none exists, it asks yt-dlp for the best thumbnail URL and passes that URL directly to ffmpeg for embedding.
+- During a fresh download, the downloader first checks for a local sidecar image. If none exists, it uses the best thumbnail URL from the download's own yt-dlp metadata and passes that URL directly to ffmpeg for embedding (no extra YouTube request).
 - If a sidecar exists, that local image is embedded into the audio file as an APIC cover art tag using ffmpeg.
-- On reruns of already-downloaded (skipped) tracks, the downloader also checks for a local sidecar and embeds it without making any YouTube request.
-- When artwork is successfully embedded, `artwork_status = embedded` is written to the work CSV row.
-- During `reconcile_metadata.py`, the script first looks for an existing sidecar thumbnail. If missing and `youtube_url` exists in the CSV row, it fetches the best thumbnail URL from YouTube metadata and embeds it directly.
+- Already-downloaded (skipped) tracks are not retagged by the downloader; use `reconcile_metadata.py` for that.
+- `artwork_status` is set to `embedded` on success or `failed` when an embed attempt errors.
+- Rewriting text tags keeps any cover art already in the file.
+- During `reconcile_metadata.py`, a local sidecar is embedded if present. Otherwise files that already have embedded art are left alone (pass `--refresh-art` to re-fetch anyway); files without art fetch the best thumbnail URL from the row's `youtube_url`, using the cookies and request pacing from `downloader.config.json`. After a rate limit, YouTube artwork fetching is skipped for the rest of the run.
 
 Artwork embedding is best-effort and non-blocking: if image embedding fails, text metadata is still written.
 

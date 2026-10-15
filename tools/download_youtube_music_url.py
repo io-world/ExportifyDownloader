@@ -7,27 +7,29 @@ import argparse
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
-
 from exportify_downloader.core.metadata import embed_audio_metadata, embed_cover_art_from_url
 from exportify_downloader.core.utils import stable_base_name
 from exportify_downloader.core.yt_dlp_interface import (
-    build_ydl_options,
+    best_thumbnail_url,
     download_audio,
     resolve_downloaded_file,
 )
-from exportify_downloader.launcher.config import DEFAULTS, load_config, resolve_input_path
+from exportify_downloader.launcher.config import (
+    DEFAULT_CONFIG_PATH,
+    load_settings,
+    resolve_input_path,
+    ydl_kwargs_from_settings,
+)
 
 
 # Set this to a YouTube Music URL if you prefer running the script without passing a URL arg.
-DEFAULT_URL = "https://music.youtube.com/watch?v=dRoRUs7LNwk"
+DEFAULT_URL = ""
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,7 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("url", nargs="?", default="", help="YouTube or YouTube Music track URL.")
     parser.add_argument(
         "--config-path",
-        default="./downloader.config.json",
+        default=DEFAULT_CONFIG_PATH,
         help="Path to JSON config file (default: ./downloader.config.json).",
     )
     parser.add_argument(
@@ -61,39 +63,6 @@ def parse_args() -> argparse.Namespace:
         help="Override config CookiesFile value.",
     )
     return parser.parse_args()
-
-
-def choose_thumbnail_url(info: Dict[str, Any]) -> str:
-    thumbnail = info.get("thumbnail")
-    if isinstance(thumbnail, str) and thumbnail.strip():
-        return thumbnail.strip()
-
-    thumbnails = info.get("thumbnails")
-    if not isinstance(thumbnails, list):
-        return ""
-
-    best_url = ""
-    best_size = -1
-    for item in thumbnails:
-        if not isinstance(item, dict):
-            continue
-        candidate_url = item.get("url")
-        if not isinstance(candidate_url, str) or not candidate_url.strip():
-            continue
-
-        width = item.get("width")
-        height = item.get("height")
-        score = 0
-        if isinstance(width, int):
-            score += width
-        if isinstance(height, int):
-            score += height
-
-        if score >= best_size:
-            best_size = score
-            best_url = candidate_url.strip()
-
-    return best_url
 
 
 def clean_date(raw_date: str) -> str:
@@ -124,145 +93,57 @@ def build_metadata(info: Dict[str, Any]) -> Dict[str, str]:
     return metadata
 
 
-def fetch_info(
-    url: str,
-    cookies_from_browser: str,
-    cookies_file: Optional[Path],
-    sleep_requests: float,
-    limit_rate: str,
-    throttled_rate: str,
-    sleep_interval: float,
-    max_sleep_interval: float,
-) -> Dict[str, Any]:
-    options = build_ydl_options(
-        cookies_from_browser=cookies_from_browser,
-        cookies_file=cookies_file,
-        sleep_requests=sleep_requests,
-        limit_rate=limit_rate,
-        throttled_rate=throttled_rate,
-        sleep_interval=sleep_interval,
-        max_sleep_interval=max_sleep_interval,
-    )
-    options.update(
-        {
-            "noplaylist": True,
-            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-        }
-    )
-
-    try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
-    except DownloadError as exc:
-        message = str(exc).strip() or "yt-dlp metadata lookup failed"
-        raise RuntimeError(message) from exc
-
-    if not isinstance(info, dict):
-        raise RuntimeError("Could not read metadata for URL")
-
-    return info
-
-
 def main() -> int:
     args = parse_args()
-
-    script_dir = Path(__file__).resolve().parents[1]
-    config_path = resolve_input_path(script_dir, args.config_path)
-
-    try:
-        config = load_config(config_path)
-    except RuntimeError as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-
-    settings = dict(DEFAULTS)
-    for key in settings:
-        if key in config:
-            settings[key] = config[key]
-
-    if args.cookies_from_browser is not None:
-        settings["CookiesFromBrowser"] = args.cookies_from_browser
-    if args.cookies_file is not None:
-        settings["CookiesFile"] = args.cookies_file
-
-    cookies_from_browser = str(settings.get("CookiesFromBrowser", "") or "").strip()
-    cookies_file_value = str(settings.get("CookiesFile", "") or "").strip()
-    cookies_file: Optional[Path] = None
-    if cookies_file_value:
-        cookies_file = resolve_input_path(script_dir, cookies_file_value)
-        if not cookies_file.exists():
-            print(f"Cookies file not found: {cookies_file}", file=sys.stderr)
-            return 1
-
-    if not cookies_from_browser and cookies_file is None:
-        default_cookies_file = (script_dir / "music youtube cookies.txt").resolve()
-        if default_cookies_file.exists():
-            cookies_file = default_cookies_file
-
-    output_dir = resolve_input_path(script_dir, args.output_folder)
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     url = args.url.strip() or DEFAULT_URL.strip()
     if not url:
         print("URL is required. Pass it as an argument or set DEFAULT_URL in this script.", file=sys.stderr)
         return 1
 
-    sleep_requests = float(settings.get("SleepRequests", 1.0) or 1.0)
-    limit_rate = str(settings.get("LimitRate", "") or "").strip()
-    throttled_rate = str(settings.get("ThrottledRate", "") or "").strip()
-    sleep_interval = float(settings.get("SleepInterval", 0.0) or 0.0)
-    max_sleep_interval = float(settings.get("MaxSleepInterval", 0.0) or 0.0)
-
     try:
-        info = fetch_info(
-            url=url,
-            cookies_from_browser=cookies_from_browser,
-            cookies_file=cookies_file,
-            sleep_requests=sleep_requests,
-            limit_rate=limit_rate,
-            throttled_rate=throttled_rate,
-            sleep_interval=sleep_interval,
-            max_sleep_interval=max_sleep_interval,
-        )
-    except Exception as exc:  # noqa: BLE001
-        print(f"Metadata lookup failed: {exc}", file=sys.stderr)
+        settings = load_settings(REPO_ROOT, args.config_path)
+        if args.cookies_from_browser is not None:
+            settings["CookiesFromBrowser"] = args.cookies_from_browser
+        if args.cookies_file is not None:
+            settings["CookiesFile"] = args.cookies_file
+        ydl_kwargs = ydl_kwargs_from_settings(REPO_ROOT, settings)
+    except (RuntimeError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
         return 1
 
-    title = str(info.get("track") or info.get("title") or "Track").strip() or "Track"
-    artist = str(info.get("artist") or info.get("uploader") or "Unknown Artist").strip() or "Unknown Artist"
+    output_dir = resolve_input_path(REPO_ROOT, args.output_folder)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.filename.strip():
-        base_name = args.filename.strip()
-    else:
-        base_name = stable_base_name(artist, title)
-
-    output_template = str(output_dir / f"{base_name}.%(ext)s")
+    # Download under a temporary id-based name, then rename from the same request's metadata,
+    # so the track is only fetched from YouTube once.
+    temp_stem = "_url_download_%(id)s"
+    output_template = str(output_dir / f"{temp_stem}.%(ext)s")
 
     print("Downloading...")
     print(f"  URL: {url}")
     print(f"  Output folder: {output_dir}")
 
     try:
-        saved_file = download_audio(
-            url=url,
-            output_template=output_template,
-            cookies_from_browser=cookies_from_browser,
-            cookies_file=cookies_file,
-            sleep_requests=sleep_requests,
-            limit_rate=limit_rate,
-            throttled_rate=throttled_rate,
-            sleep_interval=sleep_interval,
-            max_sleep_interval=max_sleep_interval,
-        )
+        saved_file, info = download_audio(url=url, output_template=output_template, **ydl_kwargs)
     except Exception as exc:  # noqa: BLE001
         print(f"Download failed: {exc}", file=sys.stderr)
         return 1
 
-    if saved_file is None:
-        saved_file = resolve_downloaded_file(output_dir, base_name)
+    if saved_file is None and info.get("id"):
+        saved_file = resolve_downloaded_file(output_dir, f"_url_download_{info['id']}")
     if saved_file is None:
         print("Download finished but output file was not found.", file=sys.stderr)
         return 1
+
+    if args.filename.strip():
+        base_name = args.filename.strip()
+    else:
+        title = str(info.get("track") or info.get("title") or "Track").strip() or "Track"
+        artist = str(info.get("artist") or info.get("uploader") or "Unknown Artist").strip() or "Unknown Artist"
+        base_name = stable_base_name(artist, title)
+    final_file = saved_file.with_name(f"{base_name}{saved_file.suffix}")
+    saved_file = saved_file.replace(final_file)
 
     try:
         metadata = build_metadata(info)
@@ -271,7 +152,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"Warning: metadata embed failed: {exc}", file=sys.stderr)
 
-    thumbnail_url = choose_thumbnail_url(info)
+    thumbnail_url = best_thumbnail_url(info)
     if thumbnail_url:
         try:
             embed_cover_art_from_url(saved_file, thumbnail_url)

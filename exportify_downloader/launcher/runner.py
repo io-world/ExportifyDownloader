@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-from .config import resolve_input_path
+from ..core.downloader import EXIT_STOPPED_EARLY
+from .config import resolve_cookies_file
 
 
 def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[str, Any], current: int, total: int) -> int:
@@ -47,11 +48,8 @@ def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[
     if settings["CookiesFromBrowser"]:
         arguments.extend(["--cookies-from-browser", str(settings["CookiesFromBrowser"])])
 
-    cookies_file_value = str(settings["CookiesFile"]).strip() if settings["CookiesFile"] else ""
-    if cookies_file_value:
-        cookies_file_path = resolve_input_path(script_dir, cookies_file_value)
-        if not cookies_file_path.exists():
-            raise RuntimeError(f"Cookies file not found: {cookies_file_path}")
+    cookies_file_path = resolve_cookies_file(script_dir, settings)
+    if cookies_file_path is not None:
         arguments.extend(["--cookies-file", str(cookies_file_path)])
 
     csv_name = target_csv_path.name
@@ -82,5 +80,8 @@ def invoke_csv_download(script_dir: Path, target_csv_path: Path, settings: Dict[
         print(f"Completed: {csv_name}")
         return 0
 
-    print(f"Failed: {csv_name} (exit code {proc.returncode})")
+    if proc.returncode == EXIT_STOPPED_EARLY:
+        print(f"Stopped early: {csv_name} (rate limit or network failure)")
+    else:
+        print(f"Failed: {csv_name} (exit code {proc.returncode})")
     return int(proc.returncode)

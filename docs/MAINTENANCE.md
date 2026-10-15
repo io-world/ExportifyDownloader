@@ -108,10 +108,6 @@ You can set `REPORT_CSV_PATH` near the top of `tools/download_missing_tracks.py`
 
 Use `--csv-out <path>` with the report command to choose the report CSV path.
 
-Practical rule:
-
-- Use exact stem matching, not glob wildcards, for names containing square brackets (`[` and `]`).
-
 ## 5) Health Checks
 
 Python syntax check:

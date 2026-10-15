@@ -11,11 +11,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, NamedTuple, Optional
 
-from exportify_downloader.core.utils import normalize_text
-
-AUDIO_EXTENSIONS = {".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".opus"}
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from exportify_downloader.core.utils import normalize_text
+from exportify_downloader.core.yt_dlp_interface import AUDIO_EXTENSIONS
+
 RUN_LOGS_DIR = REPO_ROOT / "run_logs"
 
 #DEFAULT_ORIGINAL_DIR = Path(r"C:\Users\me\OneDrive\Desktop\DJ Music\Randy DJ Music\3. DnB Dance Floor")
@@ -35,7 +37,7 @@ class Track(NamedTuple):
 
 def split_title(stem: str) -> str:
     """Return the part after the first ' - ' (artist prefix), or the whole stem if there's none."""
-    artist, sep, rest = stem.partition(" - ")
+    _, sep, rest = stem.partition(" - ")
     return rest if sep else stem
 
 

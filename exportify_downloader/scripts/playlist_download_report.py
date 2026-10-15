@@ -12,21 +12,20 @@ from pathlib import Path
 from typing import Counter as CounterType, Dict, Iterable, List, Tuple
 
 from ..core.csv_work_state import (
+    OUTPUT_FOLDER_COLUMN,
+    STATUS_DOWNLOADED,
+    STATUS_ERROR,
+    STATUS_RESOLVED,
+    STATUS_RETRY,
+    STATUS_UNRESOLVED,
     playlist_stem,
     read_csv,
     work_csv_path_for,
     write_csv,
 )
 
-OUTPUT_FOLDER_COLUMN = "output_folder"
 DOWNLOAD_STATUS_COLUMN = "download_status"
 OUTPUT_FILE_COLUMN = "output_file"
-ERROR_STATUS = "error"
-STATUS_DOWNLOADED = "downloaded"
-STATUS_RESOLVED = "resolved"
-STATUS_UNRESOLVED = "unresolved"
-STATUS_ERROR = "error"
-STATUS_RETRY = "retry"
 BLANK_STATUS = "blank"
 KNOWN_STATUS_ORDER = [
     BLANK_STATUS,
@@ -93,7 +92,7 @@ def parse_args() -> argparse.Namespace:
 def row_has_downloaded_file(row: Dict[str, str]) -> bool:
     status = (row.get(DOWNLOAD_STATUS_COLUMN) or "").strip().lower()
     output_file = (row.get(OUTPUT_FILE_COLUMN) or "").strip()
-    return status == "downloaded" and bool(output_file) and Path(output_file).exists()
+    return status == STATUS_DOWNLOADED and bool(output_file) and Path(output_file).exists()
 
 
 def discover_csv_paths(folder_path: Path) -> List[Path]:
@@ -183,7 +182,7 @@ def collect_missing_rows(csv_paths: List[Path]) -> Tuple[List[str], List[Dict[st
                 continue
 
             normalized_row[OUTPUT_FOLDER_COLUMN] = target_folder
-            if (normalized_row.get(DOWNLOAD_STATUS_COLUMN) or "").strip().lower() == ERROR_STATUS:
+            if (normalized_row.get(DOWNLOAD_STATUS_COLUMN) or "").strip().lower() == STATUS_ERROR:
                 normalized_row[DOWNLOAD_STATUS_COLUMN] = ""
                 if "error_message" in normalized_row:
                     normalized_row["error_message"] = ""

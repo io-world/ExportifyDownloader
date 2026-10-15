@@ -7,25 +7,32 @@ This script uses work CSV as both input and state store.
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .matcher import choose_candidate
 from .csv_work_state import (
     ID_COLUMN,
+    OUTPUT_FOLDER_COLUMN,
+    STATUS_DOWNLOADED,
+    STATUS_ERROR,
+    STATUS_RESOLVED,
+    STATUS_RETRY,
+    STATUS_UNRESOLVED,
     TRACKING_COLUMNS,
     ensure_row_ids,
     ensure_row_keys,
     ensure_tracking_columns,
     playlist_stem,
+    read_csv,
     write_csv,
 )
 from .utils import (
     classify_download_error,
     first_artist,
     log,
+    parse_rate_limit,
     shorten_error_message,
     stable_base_name,
     utc_now,
@@ -35,11 +42,13 @@ from .metadata import (
     embed_audio_metadata,
     embed_cover_art,
     embed_cover_art_from_url,
+    metadata_row_id,
 )
 from .yt_dlp_interface import (
     RateLimitError,
+    TransientError,
+    best_thumbnail_url,
     download_audio,
-    get_thumbnail_url,
     resolve_downloaded_file,
     resolve_thumbnail_file,
     run_yt_dlp_json,
@@ -47,14 +56,12 @@ from .yt_dlp_interface import (
 
 REQUIRED_COLUMNS = ["Track Name", "Artist Name(s)", "Track Duration (ms)"]
 
-STATUS_RESOLVED = "resolved"
-STATUS_DOWNLOADED = "downloaded"
-STATUS_UNRESOLVED = "unresolved"
-STATUS_ERROR = "error"
-STATUS_RETRY = "retry"
+# Exit code when the run stopped early because YouTube (or the network) is unavailable.
+# The launcher uses it to stop a batch instead of hammering the next playlist. (BSD EX_TEMPFAIL)
+EXIT_STOPPED_EARLY = 75
 
-
-
+# Stop after this many back-to-back network failures; the connection is probably down.
+MAX_CONSECUTIVE_TRANSIENT_ERRORS = 3
 
 
 def parse_args() -> argparse.Namespace:
@@ -77,13 +84,6 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=6,
         help="Number of YouTube candidates to inspect for each track (default: 6).",
-    )
-    parser.add_argument(
-        "--download-enabled",
-        action="store_true",
-        default=True,
-        dest="download_enabled",
-        help="Download audio after resolving a YouTube Music candidate (default: enabled).",
     )
     parser.add_argument(
         "--resolve-only",
@@ -154,35 +154,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def metadata_row_id(row: Dict[str, str], row_index: int) -> int:
-    raw_value = (row.get(ID_COLUMN) or "").strip()
-    if raw_value.isdigit() and int(raw_value) > 0:
-        return int(raw_value)
-    return row_index
-
-
 def should_skip_row(row: Dict[str, str], force_redownload: bool) -> bool:
     if force_redownload:
         return False
 
     status = (row.get("download_status") or "").strip().lower()
     output_file = (row.get("output_file") or "").strip()
-
-    if status == STATUS_DOWNLOADED and output_file:
-        file_path = Path(output_file)
-        if file_path.exists():
-            return True
-    return False
+    return status == STATUS_DOWNLOADED and bool(output_file) and Path(output_file).exists()
 
 
 def has_saved_resolution(row: Dict[str, str]) -> bool:
     return bool((row.get("youtube_url") or "").strip())
 
 
-def reset_result_columns(row: Dict[str, str]) -> None:
+def add_missing_tracking_values(row: Dict[str, str]) -> None:
     for col in TRACKING_COLUMNS:
-        if col not in row:
-            row[col] = ""
+        row.setdefault(col, "")
 
 
 def row_id_value(row: Dict[str, str]) -> Optional[int]:
@@ -206,35 +193,53 @@ def get_row_processing_order(rows: List[Dict[str, str]], id_order: str) -> List[
     if id_order == "default":
         return order
 
+    sign = -1 if id_order == "descending" else 1
+
+    def id_key(i: int) -> Tuple[bool, int, int]:
+        # Rows without an id always sort last, in file order.
+        row_id = row_id_value(rows[i])
+        return (row_id is None, sign * (row_id or 0), i)
+
     if id_order == "priority":
-        return sorted(
-            order,
-            key=lambda i: (
-                row_priority_bucket(rows[i]),
-                row_id_value(rows[i]) is None,
-                row_id_value(rows[i]) if row_id_value(rows[i]) is not None else 0,
-                i,
-            ),
-        )
+        return sorted(order, key=lambda i: (row_priority_bucket(rows[i]), *id_key(i)))
+    return sorted(order, key=id_key)
 
-    if id_order == "ascending":
-        return sorted(
-            order,
-            key=lambda i: (
-                row_id_value(rows[i]) is None,
-                row_id_value(rows[i]) if row_id_value(rows[i]) is not None else 0,
-                i,
-            ),
-        )
 
-    return sorted(
-        order,
-        key=lambda i: (
-            row_id_value(rows[i]) is None,
-            -(row_id_value(rows[i]) if row_id_value(rows[i]) is not None else 0),
-            i,
-        ),
-    )
+def resolve_row_output_dir(row: Dict[str, str], csv_path: Path, default_dir: Path) -> Path:
+    value = (row.get(OUTPUT_FOLDER_COLUMN) or "").strip()
+    if not value:
+        return default_dir
+    row_dir = Path(value)
+    if not row_dir.is_absolute():
+        row_dir = csv_path.parent / row_dir
+    return row_dir.resolve()
+
+
+def tag_downloaded_file(
+    idx: int,
+    row: Dict[str, str],
+    saved_file: Path,
+    info: Dict[str, Any],
+) -> None:
+    """Write CSV metadata and cover art. Failures are warnings; the audio is already saved."""
+    try:
+        embed_audio_metadata(saved_file, build_audio_metadata(row, metadata_row_id(row, idx)))
+    except Exception as exc:  # noqa: BLE001
+        log(f"[{idx}] warning: metadata embed failed :: {shorten_error_message(str(exc))}")
+
+    cover_image = resolve_thumbnail_file(saved_file.parent, saved_file.stem)
+    thumbnail_url = "" if cover_image is not None else best_thumbnail_url(info)
+    if cover_image is None and not thumbnail_url:
+        return
+    try:
+        if cover_image is not None:
+            embed_cover_art(saved_file, cover_image)
+        else:
+            embed_cover_art_from_url(saved_file, thumbnail_url)
+        row["artwork_status"] = "embedded"
+    except Exception as exc:  # noqa: BLE001
+        row["artwork_status"] = "failed"
+        log(f"[{idx}] warning: artwork embed failed :: {shorten_error_message(str(exc))}")
 
 
 def main() -> int:
@@ -252,27 +257,42 @@ def main() -> int:
             print(f"Cookies file not found: {cookies_file}", file=sys.stderr)
             return 1
 
-    output_dir = csv_path.parent / playlist_stem(csv_path)
+    # Validate once up front; otherwise a typo would fail (and mark) every row.
+    try:
+        parse_rate_limit(args.limit_rate.strip(), "--limit-rate")
+        parse_rate_limit(args.throttled_rate.strip(), "--throttled-rate")
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
-    with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        if reader.fieldnames is None:
-            print("CSV appears empty or invalid.", file=sys.stderr)
-            return 1
-        fieldnames = list(reader.fieldnames)
-        rows = [dict(r) for r in reader]
+    ydl_settings: Dict[str, Any] = {
+        "cookies_from_browser": args.cookies_from_browser.strip(),
+        "cookies_file": cookies_file,
+        "sleep_requests": args.sleep_requests,
+        "limit_rate": args.limit_rate.strip(),
+        "throttled_rate": args.throttled_rate.strip(),
+        "sleep_interval": args.sleep_interval,
+        "max_sleep_interval": args.max_sleep_interval,
+    }
 
-    if any(not (row.get("output_folder") or "").strip() for row in rows):
-        output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        fieldnames, rows = read_csv(csv_path)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     missing = [c for c in REQUIRED_COLUMNS if c not in fieldnames]
     if missing:
         print("Missing required CSV columns: " + ", ".join(missing), file=sys.stderr)
         return 1
 
+    output_dir = csv_path.parent / playlist_stem(csv_path)
+    if any(not (row.get(OUTPUT_FOLDER_COLUMN) or "").strip() for row in rows):
+        output_dir.mkdir(parents=True, exist_ok=True)
+
     fieldnames = ensure_tracking_columns(fieldnames)
     for row in rows:
-        reset_result_columns(row)
+        add_missing_tracking_values(row)
     ensure_row_ids(rows)
     ensure_row_keys(rows)
 
@@ -286,7 +306,9 @@ def main() -> int:
     unresolved = 0
     failed = 0
     rate_limited = 0
-    stopped_for_rate_limit = False
+    retry_later = 0
+    consecutive_transient = 0
+    stop_reason = ""
     row_order = get_row_processing_order(rows, args.id_order)
     log(f"Processing order: id {args.id_order}")
     log(f"Download enabled: {args.download_enabled}")
@@ -301,7 +323,8 @@ def main() -> int:
         saved_resolution = has_saved_resolution(row)
         error_message = (row.get("error_message") or "").strip()
 
-        if error_message and status == STATUS_ERROR and classify_download_error(error_message) == "rate_limit":
+        # Older runs marked rate-limit/network failures as permanent errors; give them another go.
+        if status == STATUS_ERROR and error_message and classify_download_error(error_message):
             row["download_status"] = STATUS_RETRY
             status = STATUS_RETRY
             write_csv(csv_path, fieldnames, rows)
@@ -315,11 +338,6 @@ def main() -> int:
             skipped += 1
             log(f"[{idx}] skip: previous permanent error ({shorten_error_message(error_message)})")
             continue
-
-        if not args.force_redownload and status == STATUS_RETRY:
-            log(f"[{idx}] retrying: prior rate-limit row")
-        elif not args.force_redownload and status == STATUS_RESOLVED and saved_resolution and args.download_enabled:
-            pass
 
         if should_skip_row(row, args.force_redownload):
             skipped += 1
@@ -348,27 +366,13 @@ def main() -> int:
             if saved_resolution and status in {STATUS_RESOLVED, STATUS_RETRY} and not args.force_redownload:
                 url = str(row.get("youtube_url") or "").strip()
                 title = str(row.get("selected_title") or "").strip()
-                selected_duration_raw = (row.get("selected_duration_s") or "").strip()
-                candidate_duration = int(selected_duration_raw) if selected_duration_raw.isdigit() else None
-                delta_raw = (row.get("duration_delta_s") or "").strip()
-                delta = int(delta_raw) if delta_raw.isdigit() else 0
                 if status == STATUS_RETRY:
                     log(f"[{idx}] retrying saved resolution: {artist} - {track} <- {title or url}")
                 else:
                     log(f"[{idx}] using saved resolution: {artist} - {track} <- {title or url}")
             else:
                 log(f"[{idx}] checking: {artist} - {track}")
-                candidates = run_yt_dlp_json(
-                    query,
-                    args.search_results,
-                    args.cookies_from_browser.strip(),
-                    cookies_file,
-                    args.sleep_requests,
-                    args.limit_rate.strip(),
-                    args.throttled_rate.strip(),
-                    args.sleep_interval,
-                    args.max_sleep_interval,
-                )
+                candidates = run_yt_dlp_json(query, args.search_results, **ydl_settings)
                 picked = choose_candidate(
                     candidates,
                     expected_duration_s,
@@ -387,6 +391,7 @@ def main() -> int:
                     write_csv(csv_path, fieldnames, rows)
                     unresolved += 1
                     processed += 1
+                    consecutive_transient = 0
                     log(f"[{idx}] unresolved: {artist} - {track}")
                     continue
 
@@ -414,6 +419,7 @@ def main() -> int:
                 row["error_message"] = ""
                 write_csv(csv_path, fieldnames, rows)
                 resolved += 1
+                consecutive_transient = 0
 
                 if not args.download_enabled:
                     processed += 1
@@ -421,66 +427,29 @@ def main() -> int:
                     continue
 
             base_name = stable_base_name(artist, track)
-            row_output_dir_value = (row.get("output_folder") or "").strip()
-            if row_output_dir_value:
-                row_output_dir = Path(row_output_dir_value)
-                if not row_output_dir.is_absolute():
-                    row_output_dir = csv_path.parent / row_output_dir
-                row_output_dir = row_output_dir.resolve()
-            else:
-                row_output_dir = output_dir
+            row_output_dir = resolve_row_output_dir(row, csv_path, output_dir)
             row_output_dir.mkdir(parents=True, exist_ok=True)
             output_template = str(row_output_dir / f"{base_name}.%(ext)s")
             log(f"[{idx}] downloading: {artist} - {track} <- {title}")
 
-            saved_file = download_audio(
-                url,
-                output_template,
-                args.cookies_from_browser.strip(),
-                cookies_file,
-                args.sleep_requests,
-                args.limit_rate.strip(),
-                args.throttled_rate.strip(),
-                args.sleep_interval,
-                args.max_sleep_interval,
-            )
+            saved_file, info = download_audio(url, output_template, **ydl_settings)
             if saved_file is None:
                 saved_file = resolve_downloaded_file(row_output_dir, base_name)
-            if saved_file is not None:
-                embed_audio_metadata(saved_file, build_audio_metadata(row, metadata_row_id(row, idx)))
-                cover_image = resolve_thumbnail_file(saved_file.parent, saved_file.stem)
-                if cover_image is None:
-                    try:
-                        thumbnail_url = get_thumbnail_url(
-                            url,
-                            args.cookies_from_browser.strip(),
-                            cookies_file,
-                            args.sleep_requests,
-                            args.limit_rate.strip(),
-                            args.throttled_rate.strip(),
-                            args.sleep_interval,
-                            args.max_sleep_interval,
-                        )
-                        if thumbnail_url:
-                            embed_cover_art_from_url(saved_file, thumbnail_url)
-                            row["artwork_status"] = "embedded"
-                    except Exception as exc:  # noqa: BLE001
-                        log(f"[{idx}] warning: artwork fetch/embed failed :: {shorten_error_message(str(exc))}")
-                elif cover_image is not None:
-                    try:
-                        embed_cover_art(saved_file, cover_image)
-                        row["artwork_status"] = "embedded"
-                    except Exception as exc:  # noqa: BLE001
-                        log(f"[{idx}] warning: artwork embed failed :: {shorten_error_message(str(exc))}")
+            if saved_file is None:
+                raise RuntimeError(f"Download finished but no audio file was found in {row_output_dir}")
 
+            # Record the download before tagging so a tagging failure can't orphan the file.
             row["download_status"] = STATUS_DOWNLOADED
-            row["output_file"] = str(saved_file.resolve()) if saved_file else ""
+            row["output_file"] = str(saved_file.resolve())
             row["attempted_at"] = utc_now()
             row["error_message"] = ""
+            write_csv(csv_path, fieldnames, rows)
 
+            tag_downloaded_file(idx, row, saved_file, info)
             write_csv(csv_path, fieldnames, rows)
             downloaded += 1
             processed += 1
+            consecutive_transient = 0
             log(f"[{idx}] downloaded: {artist} - {track}")
 
         except RateLimitError as exc:
@@ -488,13 +457,25 @@ def main() -> int:
             row["attempted_at"] = utc_now()
             row["error_message"] = str(exc).strip()[:400]
             write_csv(csv_path, fieldnames, rows)
-            failed += 1
             rate_limited += 1
             processed += 1
-            stopped_for_rate_limit = True
+            stop_reason = "session rate-limited; rerun later to retry"
             log(f"[{idx}] rate-limited: marked for retry :: {shorten_error_message(str(exc))}")
             log("Stopping run early because the current YouTube session is rate-limited.")
             break
+        except TransientError as exc:
+            row["download_status"] = STATUS_RETRY
+            row["attempted_at"] = utc_now()
+            row["error_message"] = str(exc).strip()[:400]
+            write_csv(csv_path, fieldnames, rows)
+            retry_later += 1
+            processed += 1
+            consecutive_transient += 1
+            log(f"[{idx}] network error: marked for retry :: {shorten_error_message(str(exc))}")
+            if consecutive_transient >= MAX_CONSECUTIVE_TRANSIENT_ERRORS:
+                stop_reason = "repeated network errors; check the connection and rerun"
+                log(f"Stopping run early after {consecutive_transient} network errors in a row.")
+                break
         except Exception as exc:  # noqa: BLE001
             row["download_status"] = STATUS_ERROR
             row["attempted_at"] = utc_now()
@@ -502,6 +483,7 @@ def main() -> int:
             write_csv(csv_path, fieldnames, rows)
             failed += 1
             processed += 1
+            consecutive_transient = 0
             log(f"[{idx}] error: {artist} - {track} :: {shorten_error_message(str(exc))}")
 
     log("\nRun complete")
@@ -511,11 +493,12 @@ def main() -> int:
     log(f"  unresolved: {unresolved}")
     log(f"  errors:     {failed}")
     log(f"  rate-limit: {rate_limited}")
-    if stopped_for_rate_limit:
-        log("  stopped:    session rate-limited; rerun later to retry")
+    log(f"  retry:      {retry_later}")
+    if stop_reason:
+        log(f"  stopped:    {stop_reason}")
     log(f"  csv:        {csv_path}")
     log(f"  out dir:    {output_dir}")
-    return 0
+    return EXIT_STOPPED_EARLY if stop_reason else 0
 
 
 if __name__ == "__main__":

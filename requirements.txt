@@ -1,5 +1,8 @@
 # Python package dependencies
 git+https://github.com/yt-dlp/yt-dlp.git
+mutagen  # tools/check_tags.py, tools/bpm_analysis.py
+
+# Optional, only for tools/bpm_analysis.py: librosa essentia anthropic bpm-detector
 
 # Note: ffmpeg is required by the downloader but is a system dependency,
 # not a pip package. Install ffmpeg separately and ensure it is on PATH.

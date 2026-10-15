@@ -51,18 +51,46 @@ def parse_rate_limit(value: str, option_name: str) -> Optional[int]:
     return int(parsed)
 
 
+RATE_LIMIT_PATTERNS = (
+    "rate-limited by youtube",
+    "the current session has been rate-limited",
+    "try again later",
+    "too many requests",
+    "http error 429",
+    "status code 429",
+    "retry after",
+)
+
+# Network/server failures that say nothing about the track itself and are worth retrying.
+TRANSIENT_PATTERNS = (
+    "unable to download webpage",
+    "unable to download api page",
+    "getaddrinfo failed",
+    "name or service not known",
+    "temporary failure in name resolution",
+    "failed to resolve",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "remote end closed connection",
+    "network is unreachable",
+    "timed out",
+    "read timeout",
+    "http error 500",
+    "http error 502",
+    "http error 503",
+    "http error 504",
+)
+
+
 def classify_download_error(message: str) -> str:
+    """Return "rate_limit", "transient", or "" (permanent) for a yt-dlp error message."""
     lowered = message.lower()
-    patterns = (
-        "rate-limited by youtube",
-        "the current session has been rate-limited",
-        "try again later",
-        "too many requests",
-        "http error 429",
-        "status code 429",
-        "retry after",
-    )
-    return "rate_limit" if any(pattern in lowered for pattern in patterns) else ""
+    if any(pattern in lowered for pattern in RATE_LIMIT_PATTERNS):
+        return "rate_limit"
+    if any(pattern in lowered for pattern in TRANSIENT_PATTERNS):
+        return "transient"
+    return ""
 
 
 def clean_meta_value(value: str) -> str:

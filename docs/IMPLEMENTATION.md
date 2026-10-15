@@ -128,15 +128,15 @@ For each CSV row, the downloader roughly does this:
 7. Select the lowest-scored candidate (best match).
 8. Persist the chosen candidate into the work CSV and mark the row `resolved`.
 9. If downloads are enabled, download the chosen candidate as audio with yt-dlp rate limiting applied.
-10. Resolve the actual saved output file from the target folder.
-11. Write metadata tags with `ffmpeg`.
-12. Look for a sidecar image file (`.jpg`, `.png`, `.webp`) alongside the audio file and embed it as APIC cover art. If no sidecar exists, attempt to download the thumbnail from YouTube as a fallback.
-13. Set `artwork_status = embedded` in the row when artwork is successfully applied.
-14. Write the final `downloaded` result back into the CSV.
+10. Resolve the actual saved output file from the target folder (exact filename match, so names with `[` `]` work). If no file is found, the row is marked `error`.
+11. Write the `downloaded` result and `output_file` into the CSV before tagging, so a tagging failure can't orphan the file.
+12. Write metadata tags with `ffmpeg` (existing cover art is preserved).
+13. Look for a sidecar image file (`.jpg`, `.png`, `.webp`) alongside the audio file and embed it as APIC cover art. If no sidecar exists, embed the best thumbnail URL from the same yt-dlp request that downloaded the audio (no extra YouTube request).
+14. Set `artwork_status` to `embedded` or `failed`. Tagging and artwork failures are logged as warnings only.
 
-For already-downloaded (skipped) rows, the same artwork lookup and embed step runs on every subsequent pass, using only local sidecar files (no YouTube request). `artwork_status` is written and the CSV is saved immediately after a successful embed.
+Already-downloaded rows are skipped entirely; use `reconcile_metadata` to retag or backfill artwork for existing files.
 
-If any step fails, the row is marked `error` with a shortened `error_message`.
+If search or download fails, the row is marked `retry` for rate limits and network/server failures, or `error` (with a shortened `error_message`) for track-specific failures. The run stops early (exit code 75) on a rate limit or after 3 network errors in a row.
 
 ## Matching Heuristics
 

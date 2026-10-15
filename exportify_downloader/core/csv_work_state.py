@@ -11,6 +11,14 @@ from typing import Dict, List, Tuple
 from .utils import extract_spotify_track_id, normalize_text
 
 ID_COLUMN = "id"
+OUTPUT_FOLDER_COLUMN = "output_folder"
+
+STATUS_RESOLVED = "resolved"
+STATUS_DOWNLOADED = "downloaded"
+STATUS_UNRESOLVED = "unresolved"
+STATUS_ERROR = "error"
+STATUS_RETRY = "retry"
+
 ROW_KEY_COLUMN = "row_key"
 TRACKING_COLUMNS = [
     "download_status",
@@ -68,14 +76,20 @@ def derive_row_keys(rows: List[Dict[str, str]]) -> None:
 
 
 def ensure_row_keys(rows: List[Dict[str, str]]) -> None:
-    seen: Dict[str, int] = {}
+    """Fill in only missing row keys, never reusing a key another row already has."""
+    taken = {(row.get(ROW_KEY_COLUMN) or "").strip() for row in rows}
+    taken.discard("")
     for row in rows:
-        key = (row.get(ROW_KEY_COLUMN) or "").strip()
-        if key:
+        if (row.get(ROW_KEY_COLUMN) or "").strip():
             continue
         base = row_key_base(row)
-        seen[base] = seen.get(base, 0) + 1
-        row[ROW_KEY_COLUMN] = base if seen[base] == 1 else f"{base}#{seen[base]}"
+        key = base
+        suffix = 1
+        while key in taken:
+            suffix += 1
+            key = f"{base}#{suffix}"
+        row[ROW_KEY_COLUMN] = key
+        taken.add(key)
 
 
 def ensure_row_ids(rows: List[Dict[str, str]]) -> None:
@@ -139,15 +153,7 @@ def prepare_work_csv(source_csv_path: Path) -> Path:
         source_keyed[row[ROW_KEY_COLUMN]] = row
 
     if not work_csv_path.exists():
-        fieldnames = list(source_fieldnames)
-        if ID_COLUMN not in fieldnames:
-            fieldnames.append(ID_COLUMN)
-        if ROW_KEY_COLUMN not in fieldnames:
-            fieldnames.append(ROW_KEY_COLUMN)
-        for col in TRACKING_COLUMNS:
-            if col not in fieldnames:
-                fieldnames.append(col)
-        fieldnames = ordered_work_fieldnames(fieldnames)
+        fieldnames = ensure_tracking_columns(source_fieldnames)
 
         rows_to_write: List[Dict[str, str]] = []
         for source_row in source_rows:
@@ -164,27 +170,11 @@ def prepare_work_csv(source_csv_path: Path) -> Path:
         return work_csv_path
 
     work_fieldnames, work_rows = read_csv(work_csv_path)
+    work_fieldnames = ensure_tracking_columns(
+        work_fieldnames + [col for col in source_fieldnames if col not in work_fieldnames]
+    )
 
-    if ID_COLUMN not in work_fieldnames:
-        work_fieldnames.append(ID_COLUMN)
-    if ROW_KEY_COLUMN not in work_fieldnames:
-        work_fieldnames.append(ROW_KEY_COLUMN)
-    for col in TRACKING_COLUMNS:
-        if col not in work_fieldnames:
-            work_fieldnames.append(col)
-    for col in source_fieldnames:
-        if col not in work_fieldnames:
-            work_fieldnames.append(col)
-    work_fieldnames = ordered_work_fieldnames(work_fieldnames)
-
-    for row in work_rows:
-        row.setdefault(ID_COLUMN, "")
-        row.setdefault(ROW_KEY_COLUMN, "")
-
-    missing_key_rows = [row for row in work_rows if not row.get(ROW_KEY_COLUMN, "").strip()]
-    if missing_key_rows:
-        derive_row_keys(work_rows)
-
+    ensure_row_keys(work_rows)
     ensure_row_ids(work_rows)
 
     work_by_key: Dict[str, Dict[str, str]] = {}
@@ -198,7 +188,7 @@ def prepare_work_csv(source_csv_path: Path) -> Path:
         if key in work_by_key:
             existing = work_by_key[key]
             # Preserve source columns for already-downloaded rows so dates aren't overwritten
-            if (existing.get("download_status") or "").strip().lower() != "downloaded":
+            if (existing.get("download_status") or "").strip().lower() != STATUS_DOWNLOADED:
                 for col in source_fieldnames:
                     existing[col] = source_row.get(col, "")
             continue

@@ -6,7 +6,10 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+DEFAULT_CONFIG_PATH = "./downloader.config.json"
+DEFAULT_COOKIES_FILENAME = "music youtube cookies.txt"
 
 DEFAULTS: Dict[str, Any] = {
     "CsvPath": "",
@@ -67,8 +70,65 @@ def load_config(config_path: Path) -> Dict[str, Any]:
     return payload
 
 
-def merged_settings(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[str, Any]:
+def settings_from_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """DEFAULTS overlaid with any known keys from the config file."""
     settings: Dict[str, Any] = dict(DEFAULTS)
+    for key in settings:
+        if key in config:
+            settings[key] = config[key]
+    return settings
+
+
+def apply_default_cookies(settings: Dict[str, Any], script_dir: Path) -> None:
+    """Use the repo's cookies file when no cookie source is configured."""
+    if str(settings.get("CookiesFromBrowser") or "").strip() or str(settings.get("CookiesFile") or "").strip():
+        return
+    default_cookies_path = (script_dir / DEFAULT_COOKIES_FILENAME).resolve()
+    if default_cookies_path.exists():
+        settings["CookiesFile"] = str(default_cookies_path)
+
+
+def resolve_cookies_file(script_dir: Path, settings: Dict[str, Any]) -> Optional[Path]:
+    """Resolved CookiesFile path, or None when unset. Raises RuntimeError if it doesn't exist."""
+    value = str(settings.get("CookiesFile") or "").strip()
+    if not value:
+        return None
+    path = resolve_input_path(script_dir, value)
+    if not path.exists():
+        raise RuntimeError(f"Cookies file not found: {path}")
+    return path
+
+
+def _setting_float(settings: Dict[str, Any], key: str) -> float:
+    value = settings.get(key)
+    if value is None or str(value).strip() == "":
+        return float(DEFAULTS[key])
+    return float(value)
+
+
+def ydl_kwargs_from_settings(script_dir: Path, settings: Dict[str, Any]) -> Dict[str, Any]:
+    """Keyword arguments for the yt_dlp_interface helpers. Raises RuntimeError for a missing cookies file."""
+    return {
+        "cookies_from_browser": str(settings.get("CookiesFromBrowser") or "").strip(),
+        "cookies_file": resolve_cookies_file(script_dir, settings),
+        "sleep_requests": _setting_float(settings, "SleepRequests"),
+        "limit_rate": str(settings.get("LimitRate") or "").strip(),
+        "throttled_rate": str(settings.get("ThrottledRate") or "").strip(),
+        "sleep_interval": _setting_float(settings, "SleepInterval"),
+        "max_sleep_interval": _setting_float(settings, "MaxSleepInterval"),
+    }
+
+
+def load_settings(script_dir: Path, config_path_value: str) -> Dict[str, Any]:
+    """Load the config file into settings and apply the default cookies file. Raises RuntimeError."""
+    config = load_config(resolve_input_path(script_dir, config_path_value))
+    settings = settings_from_config(config)
+    apply_default_cookies(settings, script_dir)
+    return settings
+
+
+def merged_settings(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[str, Any]:
+    settings = settings_from_config(config)
 
     arg_map = {
         "CsvPath": args.csv_path,
@@ -87,10 +147,6 @@ def merged_settings(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[st
         "CookiesFromBrowser": args.cookies_from_browser,
         "CookiesFile": args.cookies_file,
     }
-
-    for key in settings:
-        if key in config:
-            settings[key] = config[key]
 
     for key, value in arg_map.items():
         if value is not None:

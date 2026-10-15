@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, Iterable, List, NoReturn, Optional, Tuple
 from urllib.parse import quote_plus
 
 from yt_dlp import YoutubeDL
@@ -15,9 +15,25 @@ from .utils import classify_download_error, parse_rate_limit
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".mp4", ".aac", ".flac", ".wav", ".ogg", ".opus"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
+EXTRACTOR_ARGS = {"youtube": {"player_client": ["android", "web"]}}
+
 
 class RateLimitError(RuntimeError):
     pass
+
+
+class TransientError(RuntimeError):
+    """Network or server failure unrelated to the track; safe to retry later."""
+
+
+def raise_download_error(exc: DownloadError, fallback_message: str) -> NoReturn:
+    message = str(exc).strip() or fallback_message
+    kind = classify_download_error(message)
+    if kind == "rate_limit":
+        raise RateLimitError(message) from exc
+    if kind == "transient":
+        raise TransientError(message) from exc
+    raise RuntimeError(message) from exc
 
 
 def build_ydl_options(
@@ -32,6 +48,7 @@ def build_ydl_options(
     options: Dict[str, object] = {
         "quiet": True,
         "no_warnings": True,
+        "extractor_args": EXTRACTOR_ARGS,
     }
 
     if cookies_from_browser:
@@ -78,21 +95,13 @@ def run_yt_dlp_json(
         sleep_interval,
         max_sleep_interval,
     )
-    options.update(
-        {
-            "playlistend": limit,
-            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-        }
-    )
+    options["playlistend"] = limit
 
     try:
         with YoutubeDL(options) as ydl:
             payload = ydl.extract_info(search_url, download=False)
     except DownloadError as exc:
-        message = str(exc).strip() or "yt-dlp search failed"
-        if classify_download_error(message) == "rate_limit":
-            raise RateLimitError(message) from exc
-        raise RuntimeError(message) from exc
+        raise_download_error(exc, "yt-dlp search failed")
 
     entries = payload.get("entries") if isinstance(payload, dict) else None
     if not isinstance(entries, list):
@@ -127,7 +136,8 @@ def download_audio(
     throttled_rate: str = "",
     sleep_interval: float = 0.0,
     max_sleep_interval: float = 0.0,
-) -> Optional[Path]:
+) -> Tuple[Optional[Path], Dict[str, Any]]:
+    """Download and convert to mp3. Returns (saved file or None, yt-dlp info dict)."""
     output_path = Path(output_template)
     options = build_ydl_options(
         cookies_from_browser,
@@ -142,7 +152,6 @@ def download_audio(
         {
             "format": "bestaudio/best",
             "noplaylist": True,
-            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
             "paths": {"home": str(output_path.parent)},
             "outtmpl": {"default": output_path.name},
             "postprocessors": [
@@ -160,23 +169,20 @@ def download_audio(
             info = ydl.extract_info(url, download=True)
             final_path = Path(ydl.prepare_filename(info))
     except DownloadError as exc:
-        message = str(exc).strip() or "yt-dlp download failed"
-        if classify_download_error(message) == "rate_limit":
-            raise RateLimitError(message) from exc
-        raise RuntimeError(message) from exc
+        raise_download_error(exc, "yt-dlp download failed")
 
+    info = info if isinstance(info, dict) else {}
     if final_path.suffix.lower() != ".mp3":
         mp3_path = final_path.with_suffix(".mp3")
         if mp3_path.exists():
-            return mp3_path
+            return mp3_path, info
     if final_path.exists():
-        return final_path
-    return None
+        return final_path, info
+    return None, info
 
 
-def download_thumbnail(
+def fetch_info(
     url: str,
-    output_template: str,
     cookies_from_browser: str = "",
     cookies_file: Optional[Path] = None,
     sleep_requests: float = 0.0,
@@ -184,8 +190,7 @@ def download_thumbnail(
     throttled_rate: str = "",
     sleep_interval: float = 0.0,
     max_sleep_interval: float = 0.0,
-) -> Optional[Path]:
-    output_path = Path(output_template)
+) -> Dict[str, Any]:
     options = build_ydl_options(
         cookies_from_browser,
         cookies_file,
@@ -195,59 +200,65 @@ def download_thumbnail(
         sleep_interval,
         max_sleep_interval,
     )
-    options.update(
-        {
-            "noplaylist": True,
-            "skip_download": True,
-            "writethumbnail": True,
-            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-            "paths": {"home": str(output_path.parent)},
-            "outtmpl": {"default": output_path.name},
-            "postprocessors": [
-                {
-                    "key": "FFmpegThumbnailsConvertor",
-                    "format": "jpg",
-                }
-            ],
-        }
-    )
+    options["noplaylist"] = True
 
     try:
         with YoutubeDL(options) as ydl:
-            ydl.extract_info(url, download=True)
+            info = ydl.extract_info(url, download=False)
     except DownloadError as exc:
-        message = str(exc).strip() or "yt-dlp thumbnail download failed"
-        if classify_download_error(message) == "rate_limit":
-            raise RateLimitError(message) from exc
-        raise RuntimeError(message) from exc
+        raise_download_error(exc, "yt-dlp metadata lookup failed")
 
-    return resolve_thumbnail_file(output_path.parent, output_path.stem)
+    if not isinstance(info, dict):
+        raise RuntimeError("Could not read metadata for URL")
+    return info
+
+
+def find_file_by_stem(output_dir: Path, base_name: str, extensions: Iterable[str]) -> Optional[Path]:
+    """Newest file named exactly <base_name><ext>. Avoids glob so names with [ ] match literally."""
+    wanted = base_name.casefold()
+    allowed = set(extensions)
+    if not output_dir.is_dir():
+        return None
+    files = [
+        path
+        for path in output_dir.iterdir()
+        if path.is_file() and path.suffix.lower() in allowed and path.stem.casefold() == wanted
+    ]
+    return max(files, key=lambda p: p.stat().st_mtime) if files else None
 
 
 def resolve_downloaded_file(output_dir: Path, base_name: str) -> Optional[Path]:
-    files = sorted(
-        [
-            path
-            for path in output_dir.glob(f"{base_name}.*")
-            if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
-        ],
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    return files[0] if files else None
+    return find_file_by_stem(output_dir, base_name, AUDIO_EXTENSIONS)
 
 
 def resolve_thumbnail_file(output_dir: Path, base_name: str) -> Optional[Path]:
-    files = sorted(
-        [
-            path
-            for path in output_dir.glob(f"{base_name}.*")
-            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
-        ],
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    return files[0] if files else None
+    return find_file_by_stem(output_dir, base_name, IMAGE_EXTENSIONS)
+
+
+def best_thumbnail_url(info: Dict[str, Any]) -> str:
+    thumbnail = info.get("thumbnail")
+    if isinstance(thumbnail, str) and thumbnail.strip():
+        return thumbnail.strip()
+
+    thumbnails = info.get("thumbnails")
+    if not isinstance(thumbnails, list):
+        return ""
+
+    best_url = ""
+    best_size = -1
+    for item in thumbnails:
+        if not isinstance(item, dict):
+            continue
+        candidate_url = item.get("url")
+        if not isinstance(candidate_url, str) or not candidate_url.strip():
+            continue
+        width = item.get("width")
+        height = item.get("height")
+        score = (width if isinstance(width, int) else 0) + (height if isinstance(height, int) else 0)
+        if score >= best_size:
+            best_size = score
+            best_url = candidate_url.strip()
+    return best_url
 
 
 def get_thumbnail_url(
@@ -260,7 +271,8 @@ def get_thumbnail_url(
     sleep_interval: float = 0.0,
     max_sleep_interval: float = 0.0,
 ) -> Optional[str]:
-    options = build_ydl_options(
+    info = fetch_info(
+        url,
         cookies_from_browser,
         cookies_file,
         sleep_requests,
@@ -269,50 +281,4 @@ def get_thumbnail_url(
         sleep_interval,
         max_sleep_interval,
     )
-    options.update(
-        {
-            "noplaylist": True,
-            "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
-        }
-    )
-
-    try:
-        with YoutubeDL(options) as ydl:
-            info = ydl.extract_info(url, download=False)
-    except DownloadError as exc:
-        message = str(exc).strip() or "yt-dlp thumbnail URL extraction failed"
-        if classify_download_error(message) == "rate_limit":
-            raise RateLimitError(message) from exc
-        raise RuntimeError(message) from exc
-
-    if not isinstance(info, dict):
-        return None
-
-    thumbnail = info.get("thumbnail")
-    if isinstance(thumbnail, str) and thumbnail.strip():
-        return thumbnail.strip()
-
-    thumbnails = info.get("thumbnails")
-    if isinstance(thumbnails, list):
-        best_url = ""
-        best_size = -1
-        for item in thumbnails:
-            if not isinstance(item, dict):
-                continue
-            candidate_url = item.get("url")
-            if not isinstance(candidate_url, str) or not candidate_url.strip():
-                continue
-            width = item.get("width")
-            height = item.get("height")
-            score = 0
-            if isinstance(width, int):
-                score += width
-            if isinstance(height, int):
-                score += height
-            if score >= best_size:
-                best_size = score
-                best_url = candidate_url.strip()
-        if best_url:
-            return best_url
-
-    return None
+    return best_thumbnail_url(info) or None

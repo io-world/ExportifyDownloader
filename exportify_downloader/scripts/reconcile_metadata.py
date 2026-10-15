@@ -4,27 +4,33 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict
 
-from ..core.csv_work_state import write_csv
-from ..core.downloader import STATUS_DOWNLOADED
+from ..core.csv_work_state import (
+    STATUS_DOWNLOADED,
+    ensure_tracking_columns,
+    playlist_stem,
+    read_csv,
+    write_csv,
+)
 from ..core.metadata import (
     build_audio_metadata,
     embed_audio_metadata,
     embed_cover_art,
     embed_cover_art_from_url,
+    has_embedded_art,
+    metadata_row_id,
 )
 from ..core.utils import shorten_error_message, utc_now
-from ..core.yt_dlp_interface import get_thumbnail_url, resolve_thumbnail_file
+from ..core.yt_dlp_interface import RateLimitError, get_thumbnail_url, resolve_thumbnail_file
+from ..launcher.config import DEFAULT_CONFIG_PATH, load_settings, ydl_kwargs_from_settings
 from .reconcile import (
-    candidate_stems,
     collect_audio_files,
     discover_csv_path,
+    find_matching_file,
     resolve_target_csv_path,
-    playlist_stem,
 )
 
 
@@ -49,24 +55,36 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Only retag rows already marked downloaded in the CSV.",
     )
+    parser.add_argument(
+        "--refresh-art",
+        action="store_true",
+        help="Re-embed artwork even for files that already have it (default: only fill in missing art).",
+    )
+    parser.add_argument(
+        "--config-path",
+        default=DEFAULT_CONFIG_PATH,
+        help="Downloader JSON config used for cookies and request pacing (default: ./downloader.config.json).",
+    )
     return parser.parse_args()
-
-
-def metadata_row_id(row: dict[str, str], row_index: int) -> int:
-    raw_value = (row.get("id") or "").strip()
-    if raw_value.isdigit() and int(raw_value) > 0:
-        return int(raw_value)
-    return row_index
 
 
 def main() -> int:
     args = parse_args()
+    script_dir = Path(__file__).resolve().parents[2]
+
+    try:
+        ydl_kwargs: Dict[str, Any] = ydl_kwargs_from_settings(
+            script_dir, load_settings(script_dir, args.config_path)
+        )
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     csv_path = args.csv_path.resolve() if args.csv_path is not None else discover_csv_path()
     if csv_path is None:
         print(
             "Could not determine CSV automatically. Pass csv_path explicitly, for example: "
-            r"reconcile_metadata.py .\exportify.app\3_dnb_dance_floor.csv",
+            r"python -m exportify_downloader.scripts.reconcile_metadata .\exportify.app\3_dnb_dance_floor.csv",
             file=sys.stderr,
         )
         return 2
@@ -85,96 +103,91 @@ def main() -> int:
         print(f"Files folder not found: {files_dir}", file=sys.stderr)
         return 1
 
-    with csv_path.open("r", newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        if reader.fieldnames is None:
-            print("CSV appears empty or invalid.", file=sys.stderr)
-            return 1
-        fieldnames = list(reader.fieldnames)
-        rows = [dict(row) for row in reader]
+    try:
+        fieldnames, rows = read_csv(csv_path)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    fieldnames = ensure_tracking_columns(fieldnames)
 
     files_by_stem = collect_audio_files(files_dir)
     matched = 0
     retagged = 0
     updated_rows = 0
     errors = 0
-    artwork_warnings = 0
     artwork_embedded = 0
+    artwork_kept = 0
     artwork_missing_source = 0
-    artwork_missing_thumbnail = 0
+    artwork_warnings = 0
+    art_fetch_disabled = False
 
     for idx, row in enumerate(rows, start=1):
         if args.downloaded_only and (row.get("download_status") or "").strip().lower() != STATUS_DOWNLOADED:
             continue
 
-        match: Optional[Path] = None
-        for stem in candidate_stems(row):
-            match = files_by_stem.get(stem.casefold())
-            if match is not None:
-                break
-
+        match = find_matching_file(row, files_by_stem)
         if match is None:
             continue
 
         matched += 1
         try:
             embed_audio_metadata(match, build_audio_metadata(row, metadata_row_id(row, idx)))
-            cover_image = resolve_thumbnail_file(match.parent, match.stem)
-            embedded_from_url = False
-            if cover_image is None:
-                youtube_url = (row.get("youtube_url") or "").strip()
-                if youtube_url:
-                    try:
-                        thumbnail_url = get_thumbnail_url(youtube_url)
-                        if thumbnail_url:
-                            embed_cover_art_from_url(match, thumbnail_url)
-                            artwork_embedded += 1
-                            embedded_from_url = True
-                    except Exception as exc:  # noqa: BLE001
-                        artwork_warnings += 1
-                        print(
-                            f"[{idx}] warning: artwork fetch/embed failed :: "
-                            f"{shorten_error_message(str(exc))}",
-                            flush=True,
-                        )
-                else:
-                    artwork_missing_source += 1
-            if cover_image is None and not embedded_from_url and (row.get("youtube_url") or "").strip():
-                artwork_missing_thumbnail += 1
-            if cover_image is not None:
-                try:
-                    embed_cover_art(match, cover_image)
-                    artwork_embedded += 1
-                except Exception as exc:  # noqa: BLE001
-                    artwork_warnings += 1
-                    print(
-                        f"[{idx}] warning: artwork embed failed :: "
-                        f"{shorten_error_message(str(exc))}",
-                        flush=True,
-                    )
-            retagged += 1
-
-            resolved_match = str(match)
-            if (row.get("output_file") or "").strip() != resolved_match:
-                row["output_file"] = resolved_match
-                updated_rows += 1
-            if (row.get("download_status") or "").strip().lower() != STATUS_DOWNLOADED:
-                row["download_status"] = STATUS_DOWNLOADED
-                updated_rows += 1
-            row["attempted_at"] = utc_now()
-            row["error_message"] = ""
         except Exception as exc:  # noqa: BLE001
             row["attempted_at"] = utc_now()
             row["error_message"] = f"Metadata write failed: {str(exc).strip()[:350]}"
             errors += 1
+            continue
+        retagged += 1
+
+        try:
+            cover_image = resolve_thumbnail_file(match.parent, match.stem)
+            youtube_url = (row.get("youtube_url") or "").strip()
+            if cover_image is not None:
+                embed_cover_art(match, cover_image)
+                artwork_embedded += 1
+            elif not args.refresh_art and has_embedded_art(match):
+                artwork_kept += 1
+            elif youtube_url and not art_fetch_disabled:
+                thumbnail_url = get_thumbnail_url(youtube_url, **ydl_kwargs)
+                if thumbnail_url:
+                    embed_cover_art_from_url(match, thumbnail_url)
+                    artwork_embedded += 1
+                else:
+                    artwork_missing_source += 1
+            else:
+                artwork_missing_source += 1
+        except RateLimitError as exc:
+            artwork_warnings += 1
+            art_fetch_disabled = True
+            print(
+                f"[{idx}] rate-limited fetching artwork; skipping YouTube art for the rest of this run :: "
+                f"{shorten_error_message(str(exc))}",
+                flush=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            artwork_warnings += 1
+            print(
+                f"[{idx}] warning: artwork fetch/embed failed :: {shorten_error_message(str(exc))}",
+                flush=True,
+            )
+
+        resolved_match = str(match)
+        if (row.get("output_file") or "").strip() != resolved_match:
+            row["output_file"] = resolved_match
+            updated_rows += 1
+        if (row.get("download_status") or "").strip().lower() != STATUS_DOWNLOADED:
+            row["download_status"] = STATUS_DOWNLOADED
+            updated_rows += 1
+        row["attempted_at"] = utc_now()
+        row["error_message"] = ""
 
     write_csv(csv_path, fieldnames, rows)
     print(
         f"scanned_files={len(files_by_stem)} matched_rows={matched} "
         f"retagged_rows={retagged} updated_rows={updated_rows} "
         f"artwork_embedded={artwork_embedded} "
+        f"artwork_kept={artwork_kept} "
         f"artwork_missing_source={artwork_missing_source} "
-        f"artwork_missing_thumbnail={artwork_missing_thumbnail} "
         f"artwork_warnings={artwork_warnings} errors={errors}"
     )
     return 1 if errors > 0 else 0
